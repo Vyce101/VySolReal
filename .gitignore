@@ -1,4 +1,5 @@
 venv/
+user/
 __pycache__/
 *.py[cod]
 *.pyo
