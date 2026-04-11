@@ -3,10 +3,10 @@
 Local-first graph RAG app for roleplaying in pre-existing fictional worlds with grounded, inspectable lore context.
 
 <p align="center">
-  <img src="docs/assets/vysol-preview.svg" alt="VySol preview" width="960">
+  <img src="docs/assets/social.png" alt="VySol preview" width="960">
 </p>
 
-![Build](https://img.shields.io/badge/build-local%20checks-manual-lightgrey)
+![Build](https://img.shields.io/badge/build-local%20checks%20manual-lightgrey)
 ![License](https://img.shields.io/badge/license-AGPLv3%20%2B%20Commercial-blue)
 ![Python](https://img.shields.io/badge/python-3.14.3-3776AB)
 ![Node](https://img.shields.io/badge/node-24-339933)
