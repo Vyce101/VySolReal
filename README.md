@@ -76,7 +76,6 @@ VySol retrieved:
 - [Quickstart](docs/QUICKSTART.md)
 - [Features](docs/FEATURES.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Commercial License](docs/COMMERCIAL%20LICENSE.md)
 
 ## License
 
