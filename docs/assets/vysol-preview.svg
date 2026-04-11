@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-label="VySol preview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F4F7F9" />
+      <stop offset="100%" stop-color="#E8F7FC" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="675" fill="url(#bg)" />
+  <rect x="80" y="80" width="1040" height="515" rx="16" fill="#FFFFFF" stroke="#D1D9E0" />
+  <rect x="80" y="80" width="1040" height="64" rx="16" fill="#1B2430" />
+  <circle cx="112" cy="112" r="8" fill="#EF4444" />
+  <circle cx="136" cy="112" r="8" fill="#F59E0B" />
+  <circle cx="160" cy="112" r="8" fill="#22C55E" />
+  <text x="190" y="118" font-family="Segoe UI, Arial, sans-serif" font-size="22" fill="#E8F7FC">VySol</text>
+  <text x="120" y="220" font-family="Segoe UI, Arial, sans-serif" font-size="44" fill="#1B2430">UI Preview Placeholder</text>
+  <text x="120" y="272" font-family="Segoe UI, Arial, sans-serif" font-size="28" fill="#4A5568">Connect models, configure settings, and query your knowledge graph.</text>
+  <rect x="120" y="330" width="240" height="56" rx="10" fill="#0892D0" />
+  <text x="160" y="367" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#FFFFFF">Open Workspace</text>
+</svg>
