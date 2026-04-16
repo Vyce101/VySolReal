@@ -6,10 +6,9 @@ Local-first graph RAG app for roleplaying in pre-existing fictional worlds with 
   <img src="docs/assets/social.png" alt="VySol preview" width="960">
 </p>
 
-![Build](https://img.shields.io/badge/build-local%20checks%20manual-lightgrey)
-![License](https://img.shields.io/badge/license-AGPLv3%20%2B%20Commercial-blue)
 ![Python](https://img.shields.io/badge/python-3.14.3-3776AB)
 ![Node](https://img.shields.io/badge/node-24-339933)
+![License](https://img.shields.io/badge/license-AGPLv3%20%2B%20Commercial-blue)
 
 VySol is built for roleplayers who want one place to ingest canon material, extract entities and relationships, run embeddings, and chat with graph-grounded context without stitching together a pile of separate tools.
 
