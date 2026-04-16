@@ -1,4 +1,10 @@
 venv/
+node_modules/
+.retype/
+retype.manifest
+retype/node_modules/
+retype/.output/
+retype/retype.manifest
 user/
 __pycache__/
 *.py[cod]

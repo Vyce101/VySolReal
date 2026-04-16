@@ -1,0 +1,9 @@
+input: ../docs/guide
+output: .output
+
+# Inferred from the current GitHub remote so local builds work out of the box.
+url: https://vyce101.github.io/VySolReal/
+
+branding:
+  title: VySol
+  label: Docs

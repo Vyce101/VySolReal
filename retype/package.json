@@ -1,0 +1,12 @@
+{
+  "name": "vysol-retype",
+  "private": true,
+  "scripts": {
+    "docs:start": "retype start",
+    "docs:build": "retype build",
+    "docs:serve": "retype serve"
+  },
+  "devDependencies": {
+    "retypeapp": "4.5.3"
+  }
+}

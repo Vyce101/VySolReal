@@ -72,13 +72,12 @@ VySol retrieved:
 
 ## Where To Read Next
 
+- [Docs Site](https://vyce101.github.io/VySolReal/)
 - [Quickstart](docs/QUICKSTART.md)
-- [Features](docs/FEATURES.md)
-- [Architecture](docs/ARCHITECTURE.md)
 
 ## License
 
 This project is dual-licensed.
 
 - Open-source use: GNU AGPLv3 ([LICENSE](LICENSE))
-- Commercial use: [Commercial License](docs/COMMERCIAL%20LICENSE.md)
+- Commercial use: [Commercial License](<docs/COMMERCIAL LICENSE.md>)
