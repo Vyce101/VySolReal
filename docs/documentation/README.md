@@ -19,6 +19,7 @@ Official support currently covers Windows only. Internet access is required for 
 ## Get in Touch
 
 - [GitHub Issues](https://github.com/Vyce101/VySolReal/issues)
+- [GitHub Discussions](https://github.com/Vyce101/VySolReal/discussions)
 
 ## Contributing
 

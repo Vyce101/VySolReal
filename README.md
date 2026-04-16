@@ -72,7 +72,7 @@ VySol retrieved:
 
 ## Where To Read Next
 
-- [Docs Site](https://vyce101.github.io/VySolReal/)
+- [Documentation](https://vyce101.github.io/VySolReal/)
 - [Quickstart](docs/QUICKSTART.md)
 
 ## License
