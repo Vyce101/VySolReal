@@ -1,4 +1,4 @@
-input: ../docs/guide
+input: ../docs/documentation
 output: .output
 
 # Inferred from the current GitHub remote so local builds work out of the box.
