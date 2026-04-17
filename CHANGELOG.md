@@ -5,6 +5,9 @@
 - GitHub Pages workflow for automatic Retype publishing.
 - Dedicated Retype setup under `retype/` with pinned `retypeapp@4.5.3`.
 - Dedicated Retype content root at `docs/documentation/`.
+- Backend TXT ingestion and text splitting pipeline.
+- Resumable chunk persistence with backup fallback and rotating backend logs.
+- Internal documentation pages for Text Splitting and the current ingestion architecture.
 
 ### Changed
 

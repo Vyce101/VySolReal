@@ -1,0 +1,1 @@
+"""TXT splitter test package."""
