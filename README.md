@@ -74,6 +74,7 @@ VySol retrieved:
 
 - [Documentation](https://vyce101.github.io/VySolReal/)
 - [Quickstart](docs/QUICKSTART.md)
+- [Changelog](docs/CHANGELOG.md)
 
 ## License
 
