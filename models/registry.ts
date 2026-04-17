@@ -56,6 +56,27 @@ export function getModel(modelId: string): ModelDefinition | undefined {
   return getRegisteredModel(modelId)?.model;
 }
 
+function applyModelLimitOverrides(
+  setting: SettingDefinition,
+  model: ModelDefinition,
+): SettingDefinition {
+  if (setting.id !== "maxInputTokens") {
+    return setting;
+  }
+
+  const maxInputTokens = model.limits.maxInputTokens;
+
+  if (maxInputTokens === undefined) {
+    return setting;
+  }
+
+  return {
+    ...setting,
+    defaultValue: maxInputTokens,
+    max: maxInputTokens,
+  };
+}
+
 export function resolveModelSettings(modelId: string): SettingDefinition[] {
   const registeredModel = getRegisteredModel(modelId);
 
@@ -73,11 +94,14 @@ export function resolveModelSettings(modelId: string): SettingDefinition[] {
     }
 
     return [
-      {
-        ...baseSetting,
-        ...settingConfig,
-        id: baseSetting.id,
-      },
+      applyModelLimitOverrides(
+        {
+          ...baseSetting,
+          ...settingConfig,
+          id: baseSetting.id,
+        },
+        registeredModel.model,
+      ),
     ];
   });
 }

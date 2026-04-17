@@ -15,7 +15,7 @@ export const geminiEmbedding2PreviewModel: ModelDefinition = {
     structuredOutputs: false,
   },
   settings: [
-    { settingId: "maxInputTokens", defaultValue: 8192, max: 8192 },
+    { settingId: "maxInputTokens" },
     {
       settingId: "outputDimensionality",
       defaultValue: 3072,

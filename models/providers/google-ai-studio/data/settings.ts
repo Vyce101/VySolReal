@@ -28,14 +28,6 @@ function createSafetyThresholdSetting(
 }
 
 export const googleSettingCatalog: Record<string, SettingDefinition> = {
-  googleMapsGrounding: {
-    id: "googleMapsGrounding",
-    displayName: "Google Maps Grounding",
-    description: "Enables Grounding with Google Maps when the model supports it.",
-    valueType: "boolean",
-    control: "toggle",
-    defaultValue: false,
-  },
   urlContext: {
     id: "urlContext",
     displayName: "URL Context",
@@ -50,7 +42,7 @@ export const googleSettingCatalog: Record<string, SettingDefinition> = {
     description: "Controls how much detail the model uses when processing media inputs.",
     valueType: "enum",
     control: "select",
-    defaultValue: "MEDIA_RESOLUTION_UNSPECIFIED",
+    defaultValue: "MEDIA_RESOLUTION_HIGH",
     options: [
       { value: "MEDIA_RESOLUTION_UNSPECIFIED", label: "Default" },
       { value: "MEDIA_RESOLUTION_LOW", label: "Low" },
@@ -78,19 +70,6 @@ export const googleSettingCatalog: Record<string, SettingDefinition> = {
     "Dangerous Content",
     "Controls the block threshold for dangerous content.",
   ),
-  responseMimeType: {
-    id: "responseMimeType",
-    displayName: "Response Format",
-    description: "Hints the provider about the output format you want back.",
-    valueType: "enum",
-    control: "select",
-    defaultValue: "text/plain",
-    options: [
-      { value: "text/plain", label: "Plain Text" },
-      { value: "application/json", label: "JSON" },
-      { value: "text/x.enum", label: "Enum Text" },
-    ],
-  },
   embeddingTaskType: {
     id: "embeddingTaskType",
     displayName: "Embedding Task Type",

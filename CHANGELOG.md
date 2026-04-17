@@ -9,6 +9,7 @@
 ### Changed
 
 - Retype now publishes only `docs/documentation/`.
+- Model setting definitions now resolve `maxInputTokens` from per-model limits and remove unsupported Google-model controls from the current registry entries.
 
 ### Removed
 
