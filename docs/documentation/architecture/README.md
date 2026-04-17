@@ -1,3 +1,7 @@
+---
+order: 3
+---
+
 # Architecture
 
 Placeholder architecture diagram for the app.
