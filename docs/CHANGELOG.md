@@ -6,6 +6,7 @@
 - Dedicated Retype setup under `retype/` with pinned `retypeapp@4.5.3`.
 - Dedicated Retype content root at `docs/documentation/`.
 - Backend TXT ingestion and text splitting pipeline.
+- PDF and EPUB converters for the shared text-splitting ingestion pipeline.
 - Resumable chunk persistence with backup fallback and rotating backend logs.
 - Internal documentation pages for Text Splitting and the current ingestion architecture.
 

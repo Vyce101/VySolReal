@@ -1,20 +1,20 @@
 # Text Splitting
 
-The text splitter is the ingestion subsystem that turns source books into resumable text chunks for later extraction, embedding, and retrieval.
+The text splitter is the ingestion subsystem that turns TXT, PDF, and EPUB source books into resumable text chunks for later extraction, embedding, and retrieval.
 
 ## Why This Layer Exists
 
 VySol does not just need smaller strings. It needs chunked text that is still faithful to the source material, safe to resume after interruption, and structured enough for later knowledge graph extraction and retrieval work. That means the splitter has to do more than cut text at a fixed character count.
 
-This layer also protects the original source material inside each world. Before splitting begins, the selected file is copied into the world's private storage and a backup copy is created alongside it. From that point onward, ingestion works from app-owned copies instead of the user's original location.
+This layer also protects the original source material inside each world. Before splitting begins, the selected file is copied into the world's private storage and a backup copy is created alongside it. From that point onward, ingestion works from app-owned copies instead of the user's original location, regardless of whether the source started as TXT, PDF, or EPUB.
 
 ## How A Source Book Becomes Chunks
 
 The flow starts when ingestion receives a world name, an ordered list of source files, and the chunk settings. One ingestion run creates one world, and each selected source file becomes one book inside that world.
 
-The source file is copied into `user/worlds/<world_name>/source files/` and a second copy is stored as the backup. Today the fully implemented path is TXT. PDF and EPUB are accepted by the contract, but they are reserved for later converter work.
+The source file is copied into `user/worlds/<world_name>/source files/` and a second copy is stored as the backup. TXT, PDF, and EPUB all enter through the same ingestion boundary, but PDF and EPUB first pass through format-specific converters that extract their readable text into the same shared splitter pipeline.
 
-TXT input is decoded into text for the active split operation. If the decoded content is only whitespace or newlines, ingestion stops with a structured error instead of creating empty chunks.
+TXT input is decoded directly into text for the active split operation. PDF input is read page by page and EPUB input is read document by document in spine order, then those extracted pieces are joined into one text string with separators between them. If conversion fails, ingestion stops with a structured converter error. If conversion succeeds but the resulting text is only whitespace or newlines, ingestion stops with the same structured empty-content error the TXT path uses.
 
 Once the source text is ready, the splitter counts forward to the configured chunk size. If that point lands before the end of the document, the splitter looks backward within the configured lookback window for the cleanest available separator. The search order is paragraph break, then line break, then sentence punctuation, then blank space, and only then a hard cut at the original limit. When punctuation wins, the punctuation stays at the end of the chunk that just closed.
 

@@ -8,6 +8,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pymupdf
+from ebooklib import epub
+
 from backend.ingestion.txt_splitting.models import BookManifest, SplitterConfig
 from backend.ingestion.txt_splitting.service import ingest_sources, ingest_sources_into_existing_world
 from backend.ingestion.txt_splitting.storage import book_directory, chunk_file_path, manifest_file_path
@@ -109,6 +112,48 @@ class IngestSourcesTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.errors[0].code, "SOURCE_EMPTY")
 
+    def test_converts_pdf_and_flows_into_chunking(self) -> None:
+        source_path = self._write_pdf("book.pdf", ["Page one text.", "Page two text."])
+
+        result = ingest_sources(
+            world_name="PDF World",
+            source_files=[source_path],
+            chunk_size=50,
+            max_lookback=8,
+            overlap_size=5,
+            worlds_root=self.worlds_root,
+        )
+
+        self.assertTrue(result.success)
+        chunk_payload = json.loads(Path(result.books[0].chunk_paths[0]).read_text(encoding="utf-8"))
+        self.assertEqual(chunk_payload["source_filename"], "book.pdf")
+        self.assertIn("Page one text.", chunk_payload["chunk_text"])
+        self.assertIn("Page two text.", chunk_payload["chunk_text"])
+
+    def test_converts_epub_and_flows_into_chunking(self) -> None:
+        source_path = self._write_epub(
+            "book.epub",
+            [
+                ("intro.xhtml", "<html><body><h1>Intro</h1><p>First passage.</p></body></html>"),
+                ("chapter.xhtml", "<html><body><h1>Chapter</h1><p>Second passage.</p></body></html>"),
+            ],
+        )
+
+        result = ingest_sources(
+            world_name="EPUB World",
+            source_files=[source_path],
+            chunk_size=100,
+            max_lookback=10,
+            overlap_size=5,
+            worlds_root=self.worlds_root,
+        )
+
+        self.assertTrue(result.success)
+        chunk_payload = json.loads(Path(result.books[0].chunk_paths[0]).read_text(encoding="utf-8"))
+        self.assertEqual(chunk_payload["source_filename"], "book.epub")
+        self.assertIn("First passage.", chunk_payload["chunk_text"])
+        self.assertIn("Second passage.", chunk_payload["chunk_text"])
+
     def test_resumes_from_last_completed_chunk(self) -> None:
         source_path = self._write_source("resume.txt", "Alpha beta gamma delta epsilon zeta eta theta iota kappa")
         world_dir = self.worlds_root / "Resume World"
@@ -201,9 +246,75 @@ class IngestSourcesTests(unittest.TestCase):
         self.assertEqual(chunk_payload["chunk_position"], "1/1")
         self.assertEqual(chunk_payload["overlap_text"], "")
 
+    def test_pdf_conversion_failure_stops_ingestion(self) -> None:
+        source_path = self._write_source("broken.pdf", "not actually a pdf")
+
+        result = ingest_sources(
+            world_name="Broken PDF",
+            source_files=[source_path],
+            chunk_size=10,
+            max_lookback=5,
+            overlap_size=0,
+            worlds_root=self.worlds_root,
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.errors[0].code, "PDF_CONVERSION_FAILED")
+        self.assertEqual(result.errors[0].details["source_path"], str(self.worlds_root / "Broken PDF" / "source files" / "book_01" / "broken.pdf"))
+
+    def test_epub_conversion_failure_stops_ingestion(self) -> None:
+        source_path = self._write_source("broken.epub", "not actually an epub")
+
+        result = ingest_sources(
+            world_name="Broken EPUB",
+            source_files=[source_path],
+            chunk_size=10,
+            max_lookback=5,
+            overlap_size=0,
+            worlds_root=self.worlds_root,
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.errors[0].code, "EPUB_CONVERSION_FAILED")
+
     def _write_source(self, filename: str, content: str) -> Path:
         source_path = self.sources_dir / filename
         source_path.write_text(content, encoding="utf-8")
+        return source_path
+
+    def _write_pdf(self, filename: str, pages: list[str]) -> Path:
+        source_path = self.sources_dir / filename
+        # BLOCK 1: Build a simple text-based PDF fixture so the real PDF converter path can be tested end to end
+        # WHY: The feature promise is about actual PDF extraction, so using a generated PDF is safer than mocking the converter and missing integration issues
+        document = pymupdf.open()
+        for page_text in pages:
+            page = document.new_page()
+            page.insert_text((72, 72), page_text)
+        document.save(source_path)
+        document.close()
+        return source_path
+
+    def _write_epub(self, filename: str, items: list[tuple[str, str]]) -> Path:
+        source_path = self.sources_dir / filename
+        # BLOCK 1: Build a minimal readable EPUB fixture with a defined spine so the real EPUB converter path can be tested end to end
+        # VARS: items = sequence of (file name, XHTML content) pairs that become spine documents in reading order
+        # WHY: Creating a real EPUB fixture catches parsing and spine-order bugs that a mocked converter would hide
+        book = epub.EpubBook()
+        book.set_identifier("test-book")
+        book.set_title("Test Book")
+        book.set_language("en")
+
+        chapters = []
+        for item_name, item_content in items:
+            chapter = epub.EpubHtml(title=item_name, file_name=item_name, content=item_content)
+            book.add_item(chapter)
+            chapters.append(chapter)
+
+        book.toc = tuple(chapters)
+        book.spine = list(chapters)
+        book.add_item(epub.EpubNav())
+        book.add_item(epub.EpubNcx())
+        epub.write_epub(str(source_path), book)
         return source_path
 
 
