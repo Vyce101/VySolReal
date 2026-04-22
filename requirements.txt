@@ -1,3 +1,4 @@
 google-genai==1.72.0
 PyMuPDF==1.27.2.2
 EbookLib==0.20
+qdrant-client==1.17.1

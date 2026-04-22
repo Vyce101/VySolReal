@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from backend.embeddings.errors import EmbeddingConfigurationError, VectorStoreError
+from backend.embeddings.keys import load_provider_credentials
+from backend.embeddings.models import EmbeddingProfile, EmbeddingRunCancellation
+from backend.embeddings.service import embed_book_chunks
+from backend.embeddings.storage import ensure_world_metadata
 from backend.logger import get_logger
 
 from .chunking import split_text
@@ -41,6 +46,11 @@ def ingest_sources(
     max_lookback: int,
     overlap_size: int,
     worlds_root: str | Path | None = None,
+    embedding_profile: EmbeddingProfile | None = None,
+    embedding_concurrency: int = 4,
+    cancellation: EmbeddingRunCancellation | None = None,
+    provider_keys_root: str | Path | None = None,
+    vector_store_root: str | Path | None = None,
 ) -> IngestionResult:
     """Create a new world and ingest the provided source files."""
     # BLOCK 1: Turn the raw numeric settings into a validated splitter configuration object
@@ -62,6 +72,17 @@ def ingest_sources(
     )
 
     try:
+        # BLOCK 3: Confirm the user chose an embedding profile and has at least one eligible provider credential before creating any new world folders
+        # VARS: resolved_embedding_profile = the explicit locked embedding profile that this new world will store if ingestion is allowed to proceed
+        # WHY: The user asked for missing-key failures before the world directory exists, so new-world ingestion has to fail on embedding prerequisites before touching the filesystem
+        resolved_embedding_profile = _require_new_world_embedding_profile(
+            world_name=world_name,
+            embedding_profile=embedding_profile,
+        )
+        _ensure_embedding_credentials_available(
+            embedding_profile=resolved_embedding_profile,
+            provider_keys_root=Path(provider_keys_root) if provider_keys_root is not None else None,
+        )
         ensure_world_does_not_exist(world_dir)
         world_dir.mkdir(parents=True, exist_ok=False)
         logger.info("Created new world directory for ingestion: world_dir=%s", world_dir)
@@ -70,9 +91,14 @@ def ingest_sources(
             source_files=source_files,
             config=config,
             world_dir=world_dir,
+            embedding_profile=resolved_embedding_profile,
+            embedding_concurrency=embedding_concurrency,
+            cancellation=cancellation,
+            provider_keys_root=provider_keys_root,
+            vector_store_root=vector_store_root,
         )
     except IngestionError as error:
-        # BLOCK 3: Return a structured failure result instead of throwing raw exceptions beyond the ingestion boundary
+        # BLOCK 4: Return a structured failure result instead of throwing raw exceptions beyond the ingestion boundary
         # WHY: The future UI needs machine-readable success, warning, and error payloads to decide how to present failures without backend-owned popups
         logger.error(
             "TXT ingestion failed before completion: world_name=%s error_code=%s details=%s",
@@ -83,6 +109,7 @@ def ingest_sources(
         return IngestionResult(
             success=False,
             world_id=world_name,
+            world_uuid=None,
             world_path=str(world_dir),
             errors=[error],
         )
@@ -94,12 +121,26 @@ def ingest_sources_into_existing_world(
     source_files: list[str | Path],
     config: SplitterConfig,
     world_dir: str | Path,
+    embedding_profile: EmbeddingProfile | None = None,
+    embedding_concurrency: int = 4,
+    cancellation: EmbeddingRunCancellation | None = None,
+    provider_keys_root: str | Path | None = None,
+    vector_store_root: str | Path | None = None,
 ) -> IngestionResult:
     """Ingest books into an already-created world, resuming safely per book."""
     # BLOCK 1: Make sure the world folder exists and prepare result collectors for completed books and warnings
     # WHY: This entrypoint supports resuming into an existing world, so it must not assume the folder was just created by the caller
     resolved_world_dir = Path(world_dir)
     resolved_world_dir.mkdir(parents=True, exist_ok=True)
+    world_metadata = _ensure_locked_world_metadata(
+        world_dir=resolved_world_dir,
+        world_name=world_name,
+        embedding_profile=embedding_profile,
+    )
+    _ensure_embedding_credentials_available(
+        embedding_profile=world_metadata.embedding_profile,
+        provider_keys_root=Path(provider_keys_root) if provider_keys_root is not None else None,
+    )
     logger.info(
         "TXT ingestion run starting inside world: world_name=%s source_file_count=%s world_dir=%s",
         world_name,
@@ -123,10 +164,16 @@ def ingest_sources_into_existing_world(
             )
             book_result, book_warnings = _ingest_single_book(
                 world_name=world_name,
+                world_uuid=world_metadata.world_uuid,
                 world_dir=resolved_world_dir,
                 source_path=Path(source_file),
                 book_number=book_number,
                 config=config,
+                embedding_profile=world_metadata.embedding_profile,
+                embedding_concurrency=embedding_concurrency,
+                cancellation=cancellation,
+                provider_keys_root=Path(provider_keys_root) if provider_keys_root is not None else None,
+                vector_store_root=Path(vector_store_root) if vector_store_root is not None else None,
             )
             books.append(book_result)
             warnings.extend(book_warnings)
@@ -149,6 +196,7 @@ def ingest_sources_into_existing_world(
         return IngestionResult(
             success=False,
             world_id=world_name,
+            world_uuid=world_metadata.world_uuid,
             world_path=str(resolved_world_dir),
             books=books,
             warnings=warnings,
@@ -166,6 +214,7 @@ def ingest_sources_into_existing_world(
     return IngestionResult(
         success=True,
         world_id=world_name,
+        world_uuid=world_metadata.world_uuid,
         world_path=str(resolved_world_dir),
         books=books,
         warnings=warnings,
@@ -175,10 +224,16 @@ def ingest_sources_into_existing_world(
 def _ingest_single_book(
     *,
     world_name: str,
+    world_uuid: str,
     world_dir: Path,
     source_path: Path,
     book_number: int,
     config: SplitterConfig,
+    embedding_profile: EmbeddingProfile,
+    embedding_concurrency: int,
+    cancellation: EmbeddingRunCancellation | None,
+    provider_keys_root: Path | None,
+    vector_store_root: Path | None,
 ) -> tuple[BookIngestionResult, list[OperationEvent]]:
     # BLOCK 1: Reject missing source files before any world-local copies or manifests are created
     # WHY: Failing before setup prevents stale partial world state when the user-selected file path is already invalid
@@ -256,6 +311,7 @@ def _ingest_single_book(
     if manifest is None:
         manifest = BookManifest.create(
             world_id=world_name,
+            world_uuid=world_uuid,
             source_filename=stored_source.source_filename,
             book_number=book_number,
             total_chunks=len(chunk_drafts),
@@ -304,6 +360,7 @@ def _ingest_single_book(
 
         record = ChunkRecord(
             world_id=world_name,
+            world_uuid=world_uuid,
             source_filename=stored_source.source_filename,
             book_number=book_number,
             chunk_number=draft.chunk_number,
@@ -324,6 +381,20 @@ def _ingest_single_book(
         str(chunk_file_path(book_dir, book_number, chunk_number))
         for chunk_number in range(1, manifest.total_chunks + 1)
     ]
+    embedding_result, embedding_warnings = _embed_book_chunks_for_world(
+        world_name=world_name,
+        world_uuid=world_uuid,
+        book_dir=book_dir,
+        book_number=book_number,
+        source_filename=stored_source.source_filename,
+        chunk_paths=chunk_paths,
+        embedding_profile=embedding_profile,
+        embedding_concurrency=embedding_concurrency,
+        cancellation=cancellation,
+        provider_keys_root=provider_keys_root,
+        vector_store_root=vector_store_root,
+    )
+    warnings.extend(embedding_warnings)
     return (
         BookIngestionResult(
             book_number=book_number,
@@ -332,6 +403,7 @@ def _ingest_single_book(
             completed_chunks=manifest.last_completed_chunk,
             manifest_path=str(manifest_path),
             chunk_paths=chunk_paths,
+            embedding=embedding_result,
         ),
         warnings,
     )
@@ -359,3 +431,113 @@ def _resolve_resume_start(*, manifest: BookManifest, book_dir: Path) -> int:
     # BLOCK 3: Resume at the first chunk after the last trustworthy completed one
     # WHY: Restarting earlier would redo safe work unnecessarily, while restarting later could miss data if the manifest was ahead of the files
     return contiguous_completed + 1
+
+
+def _ensure_locked_world_metadata(
+    *,
+    world_dir: Path,
+    world_name: str,
+    embedding_profile: EmbeddingProfile | None,
+):
+    # BLOCK 1: Make sure every world directory has a stable UUID and one locked embedding profile before chunk ingestion starts
+    # WHY: Vector identity and future rename safety both depend on world metadata existing before any chunk or embedding payload is written
+    try:
+        return ensure_world_metadata(
+            world_dir=world_dir,
+            world_name=world_name,
+            embedding_profile=embedding_profile,
+        )
+    except EmbeddingConfigurationError as error:
+        raise IngestionError(
+            code=error.code,
+            message=error.message,
+            details=error.details,
+        ) from error
+
+
+def _require_new_world_embedding_profile(
+    *,
+    world_name: str,
+    embedding_profile: EmbeddingProfile | None,
+) -> EmbeddingProfile:
+    # BLOCK 1: Stop brand-new world creation when no explicit embedding profile was supplied
+    # WHY: New worlds are required to lock a user-chosen embedding model up front, and delaying that failure until after folder creation would leave stray world directories behind
+    if embedding_profile is None:
+        raise IngestionError(
+            code="EMBEDDING_PROFILE_REQUIRED",
+            message="A new world must be created with an explicit embedding profile.",
+            details={"world_name": world_name},
+        )
+    return embedding_profile
+
+
+def _ensure_embedding_credentials_available(
+    *,
+    embedding_profile: EmbeddingProfile,
+    provider_keys_root: Path | None,
+) -> None:
+    # BLOCK 1: Check for at least one credential that can serve the world's locked embedding model before any source copying or chunk writes begin
+    # WHY: The user asked for missing-key failures before ingestion work starts, so the run must stop before creating partial chunk state that can never be embedded
+    eligible_credentials = [
+        credential
+        for credential in load_provider_credentials(
+            provider_id=embedding_profile.provider_id,
+            provider_keys_root=provider_keys_root,
+        )
+        if credential.supports_model(embedding_profile.model_id)
+    ]
+    if not eligible_credentials:
+        logger.error(
+            "TXT ingestion blocked before chunking because no provider credentials can serve model=%s provider=%s.",
+            embedding_profile.model_id,
+            embedding_profile.provider_id,
+        )
+        raise IngestionError(
+            code="EMBEDDING_PROVIDER_KEYS_MISSING",
+            message="No provider credentials are configured for the selected embedding model.",
+            details={
+                "provider_id": embedding_profile.provider_id,
+                "model_id": embedding_profile.model_id,
+            },
+        )
+
+
+def _embed_book_chunks_for_world(
+    *,
+    world_name: str,
+    world_uuid: str,
+    book_dir: Path,
+    book_number: int,
+    source_filename: str,
+    chunk_paths: list[str],
+    embedding_profile: EmbeddingProfile,
+    embedding_concurrency: int,
+    cancellation: EmbeddingRunCancellation | None,
+    provider_keys_root: Path | None,
+    vector_store_root: Path | None,
+):
+    # BLOCK 1: Run the book-level embedding stage and convert any hard vector-store or profile errors into the existing ingestion error contract
+    # WHY: Automatic embeddings are part of ingestion now, so blocking embedding infrastructure failures must surface through the same structured result pathway as chunking failures
+    try:
+        embedding_result, embedding_warnings = embed_book_chunks(
+            world=ensure_world_metadata(
+                world_dir=book_dir.parents[1],
+                world_name=world_name,
+                embedding_profile=embedding_profile,
+            ),
+            book_dir=book_dir,
+            book_number=book_number,
+            source_filename=source_filename,
+            chunk_paths=chunk_paths,
+            provider_keys_root=provider_keys_root,
+            vector_store_root=vector_store_root,
+            concurrency=embedding_concurrency,
+            cancellation=cancellation,
+        )
+    except (EmbeddingConfigurationError, VectorStoreError) as error:
+        raise IngestionError(
+            code=error.code,
+            message=error.message,
+            details={**error.details, "world_uuid": world_uuid, "book_number": book_number},
+        ) from error
+    return embedding_result, embedding_warnings

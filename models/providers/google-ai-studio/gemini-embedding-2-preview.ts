@@ -23,7 +23,6 @@ export const geminiEmbedding2PreviewModel: ModelDefinition = {
       max: 3072,
       step: 128,
     },
-    { settingId: "embeddingTaskType" },
     { settingId: "embeddingTitle" },
   ],
 };

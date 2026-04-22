@@ -11,6 +11,7 @@ from pathlib import Path
 import pymupdf
 from ebooklib import epub
 
+from backend.embeddings import create_embedding_profile
 from backend.ingestion.txt_splitting.models import BookManifest, SplitterConfig
 from backend.ingestion.txt_splitting.service import ingest_sources, ingest_sources_into_existing_world
 from backend.ingestion.txt_splitting.storage import book_directory, chunk_file_path, manifest_file_path
@@ -20,8 +21,10 @@ class IngestSourcesTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = Path(tempfile.mkdtemp())
         self.worlds_root = self.temp_dir / "user" / "worlds"
+        self.keys_root = self.temp_dir / "user" / "keys"
         self.sources_dir = self.temp_dir / "fixtures"
         self.sources_dir.mkdir(parents=True, exist_ok=True)
+        self._write_google_key()
 
     def tearDown(self) -> None:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -36,6 +39,8 @@ class IngestSourcesTests(unittest.TestCase):
             max_lookback=8,
             overlap_size=3,
             worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         self.assertTrue(result.success)
@@ -60,6 +65,8 @@ class IngestSourcesTests(unittest.TestCase):
             max_lookback=5,
             overlap_size=2,
             worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         self.assertTrue(result.success)
@@ -77,6 +84,8 @@ class IngestSourcesTests(unittest.TestCase):
             max_lookback=5,
             overlap_size=0,
             worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         self.assertFalse(result.success)
@@ -92,6 +101,8 @@ class IngestSourcesTests(unittest.TestCase):
             max_lookback=5,
             overlap_size=0,
             worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         self.assertFalse(result.success)
@@ -107,6 +118,8 @@ class IngestSourcesTests(unittest.TestCase):
             max_lookback=5,
             overlap_size=0,
             worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         self.assertFalse(result.success)
@@ -122,6 +135,8 @@ class IngestSourcesTests(unittest.TestCase):
             max_lookback=8,
             overlap_size=5,
             worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         self.assertTrue(result.success)
@@ -146,6 +161,8 @@ class IngestSourcesTests(unittest.TestCase):
             max_lookback=10,
             overlap_size=5,
             worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         self.assertTrue(result.success)
@@ -165,6 +182,8 @@ class IngestSourcesTests(unittest.TestCase):
             source_files=[source_path],
             config=config,
             world_dir=world_dir,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
         self.assertTrue(first_run.success)
 
@@ -185,6 +204,8 @@ class IngestSourcesTests(unittest.TestCase):
             source_files=[source_path],
             config=config,
             world_dir=world_dir,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         self.assertTrue(resumed.success)
@@ -222,6 +243,8 @@ class IngestSourcesTests(unittest.TestCase):
                 source_files=[source_path],
                 config=config,
                 world_dir=world_dir,
+                embedding_profile=self._embedding_profile(),
+                provider_keys_root=self.keys_root,
             )
         finally:
             service_module.chunk_file_path = original_chunk_file_path
@@ -240,6 +263,8 @@ class IngestSourcesTests(unittest.TestCase):
             max_lookback=10,
             overlap_size=10,
             worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         chunk_payload = json.loads(Path(result.books[0].chunk_paths[0]).read_text(encoding="utf-8"))
@@ -256,6 +281,8 @@ class IngestSourcesTests(unittest.TestCase):
             max_lookback=5,
             overlap_size=0,
             worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         self.assertFalse(result.success)
@@ -272,6 +299,8 @@ class IngestSourcesTests(unittest.TestCase):
             max_lookback=5,
             overlap_size=0,
             worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=self.keys_root,
         )
 
         self.assertFalse(result.success)
@@ -281,6 +310,23 @@ class IngestSourcesTests(unittest.TestCase):
         source_path = self.sources_dir / filename
         source_path.write_text(content, encoding="utf-8")
         return source_path
+
+    def _write_google_key(self) -> None:
+        provider_dir = self.keys_root / "google-ai-studio"
+        provider_dir.mkdir(parents=True, exist_ok=True)
+        provider_dir.joinpath("primary.json").write_text(
+            json.dumps(
+                {
+                    "name": "Primary Google Project",
+                    "api_key": "fake-api-key",
+                    "project_id": "project-one",
+                    "allowed_models": ["google/gemini-embedding-2-preview"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
     def _write_pdf(self, filename: str, pages: list[str]) -> Path:
         source_path = self.sources_dir / filename
@@ -316,6 +362,11 @@ class IngestSourcesTests(unittest.TestCase):
         book.add_item(epub.EpubNcx())
         epub.write_epub(str(source_path), book)
         return source_path
+
+    def _embedding_profile(self):
+        # BLOCK 1: Reuse one explicit embedding model choice across ingestion tests so they reflect the product rule without repeating setup noise
+        # WHY: These tests exercise chunk ingestion behavior, but world creation now requires a chosen embedder, so a small helper keeps that requirement explicit and consistent
+        return create_embedding_profile(model_id="google/gemini-embedding-2-preview")
 
 
 if __name__ == "__main__":

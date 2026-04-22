@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from backend.embeddings.models import EmbeddingBookResult
+
 from .errors import IngestionError
 
 
@@ -64,6 +66,7 @@ class ChunkRecord:
     """Persisted chunk payload."""
 
     world_id: str
+    world_uuid: str
     source_filename: str
     book_number: int
     chunk_number: int
@@ -92,6 +95,7 @@ class BookManifest:
     """Per-book progress metadata."""
 
     world_id: str
+    world_uuid: str
     source_filename: str
     book_number: int
     total_chunks: int
@@ -102,6 +106,7 @@ class BookManifest:
     def to_dict(self) -> dict[str, object]:
         return {
             "world_id": self.world_id,
+            "world_uuid": self.world_uuid,
             "source_filename": self.source_filename,
             "book_number": self.book_number,
             "total_chunks": self.total_chunks,
@@ -115,12 +120,14 @@ class BookManifest:
         cls,
         *,
         world_id: str,
+        world_uuid: str,
         source_filename: str,
         book_number: int,
         total_chunks: int,
     ) -> "BookManifest":
         return cls(
             world_id=world_id,
+            world_uuid=world_uuid,
             source_filename=source_filename,
             book_number=book_number,
             total_chunks=total_chunks,
@@ -142,6 +149,7 @@ class BookManifest:
         ]
         return cls(
             world_id=str(payload["world_id"]),
+            world_uuid=str(payload.get("world_uuid", payload["world_id"])),
             source_filename=str(payload["source_filename"]),
             book_number=int(payload["book_number"]),
             total_chunks=int(payload["total_chunks"]),
@@ -166,9 +174,13 @@ class BookIngestionResult:
     completed_chunks: int
     manifest_path: str
     chunk_paths: list[str]
+    embedding: EmbeddingBookResult | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        payload = asdict(self)
+        if self.embedding is not None:
+            payload["embedding"] = self.embedding.to_dict()
+        return payload
 
 
 @dataclass(slots=True)
@@ -177,6 +189,7 @@ class IngestionResult:
 
     success: bool
     world_id: str | None
+    world_uuid: str | None
     world_path: str | None
     books: list[BookIngestionResult] = field(default_factory=list)
     warnings: list[OperationEvent] = field(default_factory=list)
@@ -186,6 +199,7 @@ class IngestionResult:
         return {
             "success": self.success,
             "world_id": self.world_id,
+            "world_uuid": self.world_uuid,
             "world_path": self.world_path,
             "books": [book.to_dict() for book in self.books],
             "warnings": [warning.to_dict() for warning in self.warnings],
