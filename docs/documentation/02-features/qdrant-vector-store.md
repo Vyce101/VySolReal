@@ -2,8 +2,6 @@
 
 Qdrant Vector Store is the shared local vector database that keeps each embedded chunk as a searchable vector point with retrieval metadata.
 
-![VySol workspace preview](../../assets/social.png)
-
 ## Why VySol Uses A Separate Vector Database
 
 This layer exists because chunk files alone are not enough for similarity retrieval. Retrieval needs vectors, point ids, and filterable metadata that can be searched efficiently at scale without rereading every chunk file on disk.

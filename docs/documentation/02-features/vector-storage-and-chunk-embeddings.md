@@ -2,8 +2,6 @@
 
 VySol's vector storage and chunk embedding pipeline turns persisted chunk text into locked, resumable embedding records that can be retrieved later without re-ingesting the world.
 
-![VySol workspace preview](../../assets/social.png)
-
 ## Why Chunks Become Vectors At Ingestion Time
 
 This layer exists because chunk files alone are not enough for similarity retrieval. Retrieval needs numeric vectors that were produced with one known embedding contract, stored somewhere durable, and kept in sync with the exact chunk text that lives inside the world.

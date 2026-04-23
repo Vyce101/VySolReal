@@ -2,8 +2,6 @@
 
 World Storage is the local file-backed data store that keeps each world's source copies, chunk files, manifests, and locked world metadata together in one resumable place.
 
-![VySol workspace preview](../../assets/social.png)
-
 ## Why Each World Has Its Own Stored State
 
 This storage layer exists because VySol needs more than temporary processing output. Once a source book has been selected, the app needs a durable place where the preserved source copy, the generated chunks, the world identity, and the progress metadata can all live together even if the app closes halfway through ingestion.
