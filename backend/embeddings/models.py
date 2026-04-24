@@ -6,7 +6,7 @@ import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from backend.provider_keys.models import CredentialModelLimits, ProviderCredential, ProviderRuntimeState
+from backend.provider_keys.models import ProviderCredential, ProviderRuntimeState
 
 
 @dataclass(slots=True, frozen=True)
@@ -261,6 +261,7 @@ class EmbeddingFailure:
     message: str
     retryable: bool
     rate_limit_type: str | None = None
+    rate_limit_scope: str = "model"
     retry_after_seconds: int | None = None
     billable_token_estimate: int = 0
 

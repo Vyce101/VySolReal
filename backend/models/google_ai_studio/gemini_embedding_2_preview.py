@@ -144,8 +144,8 @@ def _failure_from_api_error(
     work_item: EmbeddingWorkItem,
     error: APIError,
 ) -> EmbeddingFailure:
-    # BLOCK 1: Translate provider HTTP errors into retryable chunk-level failures with rate-limit metadata when it is available
-    # WHY: The embedding scheduler needs structured cooldown hints instead of raw exceptions so it can decide whether to retry the same chunk now, later, or on resume
+    # BLOCK 1: Translate provider HTTP errors into retryable chunk-level failures with model-local rate-limit metadata when it is available
+    # WHY: The scheduler should cool down only this key/model for ordinary Google 429s, while unknown 429 wording still needs a safe temporary fallback instead of becoming a tight retry loop
     retry_after_value = None
     rate_limit_type = None
     headers = getattr(error.response, "headers", {}) if error.response is not None else {}
@@ -179,5 +179,5 @@ def _failure_from_api_error(
 
 def _estimate_tokens(text: str) -> int:
     # BLOCK 1: Approximate input tokens from character count for scheduler guidance when the provider does not expose a precise tokenizer path here
-    # WHY: User-entered TPM limits are only soft scheduling guidance, so a lightweight estimate is good enough to reduce avoidable spikes without adding a second model-specific tokenization dependency
+    # WHY: Reservations need a cheap pre-dispatch estimate, and adding a second model-specific tokenizer just for scheduling would make the boundary heavier than the provider call contract needs
     return max(1, (len(text) + 3) // 4)

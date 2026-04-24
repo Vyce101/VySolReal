@@ -8,7 +8,7 @@ from pathlib import Path
 from backend.logger import get_logger
 
 from .errors import ProviderKeyConfigurationError
-from .models import CredentialModelLimits, ProviderCredential
+from .models import ProviderCredential
 from .storage import default_provider_keys_root
 
 logger = get_logger(__name__)
@@ -92,7 +92,7 @@ def _credential_from_payload(
     credential_path: Path,
 ) -> ProviderCredential:
     # BLOCK 1: Validate the credential file contract and turn it into one runtime credential object
-    # WHY: Backend AI calls depend on stable credential names, provider grouping, enabled state, and optional limit data, so malformed key files must fail clearly before provider calls begin
+    # WHY: Backend AI calls depend on stable credential names, provider grouping, and enabled state, so malformed key files must fail clearly before provider calls begin while deprecated limit hints stay backward-compatible
     api_key = str(payload.get("api_key", "")).strip()
     if not api_key:
         logger.error("Provider credential file is missing an API key at %s.", credential_path)
@@ -104,20 +104,16 @@ def _credential_from_payload(
 
     allowed_models_payload = payload.get("allowed_models", [])
     allowed_models = frozenset(str(model_id) for model_id in allowed_models_payload) if allowed_models_payload else frozenset()
-    raw_limits = dict(payload.get("limits", {}))
-    model_limits = {
-        str(model_id): CredentialModelLimits.from_dict(dict(limit_payload))
-        for model_id, limit_payload in raw_limits.items()
-    }
+    deprecated_limits = dict(payload.get("limits", {}))
     credential_name = str(payload.get("name") or credential_path.stem)
     project_id = str(payload["project_id"]) if payload.get("project_id") is not None else None
     logger.info(
-        "Loaded provider credential name=%s provider=%s project_id=%s allowed_models=%s model_limit_entries=%s enabled=%s.",
+        "Loaded provider credential name=%s provider=%s project_id=%s allowed_models=%s deprecated_limit_entries=%s enabled=%s.",
         credential_name,
         provider_id,
         project_id,
         len(allowed_models),
-        len(model_limits),
+        len(deprecated_limits),
         True,
     )
     return ProviderCredential(
@@ -126,7 +122,6 @@ def _credential_from_payload(
         api_key=api_key,
         project_id=project_id,
         allowed_models=allowed_models,
-        model_limits=model_limits,
         enabled=True,
     )
 

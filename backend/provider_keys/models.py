@@ -7,22 +7,25 @@ from datetime import datetime
 
 
 @dataclass(slots=True, frozen=True)
-class CredentialModelLimits:
-    """Optional per-model scheduler guidance for one credential."""
+class ProviderModelQuota:
+    """Automatic quota data for one provider model when VySol knows it."""
 
     requests_per_minute: int | None = None
     tokens_per_minute: int | None = None
     requests_per_day: int | None = None
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "CredentialModelLimits":
-        # BLOCK 1: Convert optional JSON limit fields into typed scheduler limits
-        # WHY: Provider key files are user-editable JSON, so every caller needs one normalized limit shape before scheduling decisions begin
+    def from_dict(cls, payload: dict[str, object]) -> "ProviderModelQuota":
+        # BLOCK 1: Rebuild a quota object from a trusted provider-owned payload
+        # WHY: User key-file limits are ignored, but keeping this parser lets future provider metadata feed the same automatic quota shape without reviving manual limits
         return cls(
             requests_per_minute=int(payload["requests_per_minute"]) if payload.get("requests_per_minute") is not None else None,
             tokens_per_minute=int(payload["tokens_per_minute"]) if payload.get("tokens_per_minute") is not None else None,
             requests_per_day=int(payload["requests_per_day"]) if payload.get("requests_per_day") is not None else None,
         )
+
+
+CredentialModelLimits = ProviderModelQuota
 
 
 @dataclass(slots=True, frozen=True)
@@ -34,7 +37,6 @@ class ProviderCredential:
     api_key: str
     project_id: str | None
     allowed_models: frozenset[str]
-    model_limits: dict[str, CredentialModelLimits]
     enabled: bool = True
 
     @property
@@ -63,6 +65,9 @@ class ProviderRuntimeState:
     provider_id: str
     credential_name: str
     project_id: str | None = None
+    quota_scope: str | None = None
+    model_id: str | None = None
+    limit_scope: str = "model"
     last_limit_type: str | None = None
     cooldown_until_utc: str | None = None
     last_error_message: str | None = None
@@ -82,6 +87,9 @@ class ProviderRuntimeState:
             provider_id=str(payload["provider_id"]),
             credential_name=str(payload["credential_name"]),
             project_id=str(payload["project_id"]) if payload.get("project_id") is not None else None,
+            quota_scope=str(payload["quota_scope"]) if payload.get("quota_scope") is not None else None,
+            model_id=str(payload["model_id"]) if payload.get("model_id") is not None else None,
+            limit_scope=str(payload["limit_scope"]) if payload.get("limit_scope") is not None else "model",
             last_limit_type=str(payload["last_limit_type"]) if payload.get("last_limit_type") is not None else None,
             cooldown_until_utc=str(payload["cooldown_until_utc"]) if payload.get("cooldown_until_utc") is not None else None,
             last_error_message=str(payload["last_error_message"]) if payload.get("last_error_message") is not None else None,

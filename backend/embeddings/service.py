@@ -461,6 +461,7 @@ def _handle_embedding_failure(
                 rate_limit_type=failure.rate_limit_type,
                 message=failure.message,
                 retry_after_seconds=failure.retry_after_seconds,
+                limit_scope=failure.rate_limit_scope,
             ),
         )
         warning = OperationEvent(
@@ -480,6 +481,13 @@ def _handle_embedding_failure(
             manifest.world_uuid,
             work_item.book_number,
             work_item.chunk_number,
+        )
+    else:
+        # BLOCK 2: Roll back the scheduler reservation when the failure is not a quota signal
+        # WHY: The scheduler reserves before dispatch now, and non-rate-limit failures should not make that key/model look artificially exhausted
+        scheduler.release_reservation(
+            scope_key=failure.quota_scope,
+            token_estimate=failure.billable_token_estimate,
         )
 
     if failure.retryable and state.retry_count < _MAX_RETRIES_PER_CHUNK:
