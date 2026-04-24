@@ -18,9 +18,11 @@
 
 - Retype now publishes only `docs/documentation/`.
 - Provider key scheduling now uses model-aware quota buckets, reserves requests before dispatch, and ignores deprecated user-entered key limits.
+- Model metadata now loads from a shared JSON catalog used by both the TypeScript registry and backend embedding runtime.
 - Model registry metadata now uses provider-owned settings, chat/embedding-only surfaces, generic model-limit binding, and shared Google AI Studio quota error parsing.
 - Model setting definitions now resolve `maxInputTokens` from per-model limits and remove unsupported Google-model controls from the current registry entries.
 - New-world ingestion now requires an explicit embedding model and eligible provider keys before world creation begins.
+- Qdrant chunk vectors now use embedding-profile-specific collections so worlds with different embedding dimensions can coexist in one local vector store.
 - The architecture page now reflects the chunk-to-vector pipeline with container-level storage boundaries.
 
 ### Removed

@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID, uuid5
 
@@ -69,12 +70,7 @@ class EmbeddingIngestionTests(unittest.TestCase):
     def test_creates_world_metadata_and_qdrant_vectors(self) -> None:
         source_path = self._write_source("book.txt", "Alpha beta gamma delta epsilon zeta.")
 
-        from backend.embeddings import service as embedding_service_module
-
-        original_provider = embedding_service_module.GoogleAIStudioEmbeddingProvider
-        embedding_service_module.GoogleAIStudioEmbeddingProvider = _SuccessfulProvider
-        _SuccessfulProvider.call_count = 0
-        try:
+        with self._provider(_SuccessfulProvider):
             result = ingest_sources(
                 world_name="Embedding World",
                 source_files=[source_path],
@@ -86,8 +82,6 @@ class EmbeddingIngestionTests(unittest.TestCase):
                 provider_keys_root=self.keys_root,
                 vector_store_root=self.vector_root,
             )
-        finally:
-            embedding_service_module.GoogleAIStudioEmbeddingProvider = original_provider
 
         self.assertTrue(result.success)
         self.assertIsNotNone(result.world_uuid)
@@ -106,6 +100,7 @@ class EmbeddingIngestionTests(unittest.TestCase):
         point_id = self._point_id(result.world_uuid, 1, 1)
         store = QdrantChunkStore(store_root=self.vector_root)
         try:
+            store.ensure_collection(self._embedding_profile())
             record = store.retrieve_existing_points([point_id])[point_id]
         finally:
             store.close()
@@ -128,12 +123,7 @@ class EmbeddingIngestionTests(unittest.TestCase):
         embedding_manifest_path = book_dir / "embeddings.json"
         embedding_manifest_path.unlink()
 
-        from backend.embeddings import service as embedding_service_module
-
-        original_provider = embedding_service_module.GoogleAIStudioEmbeddingProvider
-        embedding_service_module.GoogleAIStudioEmbeddingProvider = _SuccessfulProvider
-        _SuccessfulProvider.call_count = 0
-        try:
+        with self._provider(_SuccessfulProvider):
             resumed = ingest_sources_into_existing_world(
                 world_name="Resume Embedding World",
                 source_files=[source_path],
@@ -143,8 +133,6 @@ class EmbeddingIngestionTests(unittest.TestCase):
                 provider_keys_root=self.keys_root,
                 vector_store_root=self.vector_root,
             )
-        finally:
-            embedding_service_module.GoogleAIStudioEmbeddingProvider = original_provider
 
         self.assertTrue(resumed.success)
         self.assertEqual(_SuccessfulProvider.call_count, 0)
@@ -164,16 +152,12 @@ class EmbeddingIngestionTests(unittest.TestCase):
         point_id = self._point_id(first_run.world_uuid, 1, 1)
         store = QdrantChunkStore(store_root=self.vector_root)
         try:
+            store.ensure_collection(self._embedding_profile())
             store.delete_points([point_id])
         finally:
             store.close()
 
-        from backend.embeddings import service as embedding_service_module
-
-        original_provider = embedding_service_module.GoogleAIStudioEmbeddingProvider
-        embedding_service_module.GoogleAIStudioEmbeddingProvider = _SuccessfulProvider
-        _SuccessfulProvider.call_count = 0
-        try:
+        with self._provider(_SuccessfulProvider):
             resumed = ingest_sources_into_existing_world(
                 world_name="Redo Embedding World",
                 source_files=[source_path],
@@ -183,8 +167,6 @@ class EmbeddingIngestionTests(unittest.TestCase):
                 provider_keys_root=self.keys_root,
                 vector_store_root=self.vector_root,
             )
-        finally:
-            embedding_service_module.GoogleAIStudioEmbeddingProvider = original_provider
 
         self.assertTrue(resumed.success)
         self.assertGreater(_SuccessfulProvider.call_count, 0)
@@ -194,28 +176,23 @@ class EmbeddingIngestionTests(unittest.TestCase):
         source_path = self._write_source("cancel.txt", "Alpha beta gamma delta epsilon zeta.")
         cancellation = EmbeddingRunCancellation()
 
-        from backend.embeddings import service as embedding_service_module
-
-        original_provider = embedding_service_module.GoogleAIStudioEmbeddingProvider
-        embedding_service_module.GoogleAIStudioEmbeddingProvider = _SlowSuccessfulProvider
-        _SlowSuccessfulProvider.call_count = 0
         cancel_thread = threading.Thread(target=self._cancel_after_delay, args=(cancellation,), daemon=True)
         cancel_thread.start()
         try:
-            result = ingest_sources(
-                world_name="Cancelled World",
-                source_files=[source_path],
-                chunk_size=12,
-                max_lookback=5,
-                overlap_size=2,
-                worlds_root=self.worlds_root,
-                embedding_profile=self._embedding_profile(),
-                provider_keys_root=self.keys_root,
-                vector_store_root=self.vector_root,
-                cancellation=cancellation,
-            )
+            with self._provider(_SlowSuccessfulProvider):
+                result = ingest_sources(
+                    world_name="Cancelled World",
+                    source_files=[source_path],
+                    chunk_size=12,
+                    max_lookback=5,
+                    overlap_size=2,
+                    worlds_root=self.worlds_root,
+                    embedding_profile=self._embedding_profile(),
+                    provider_keys_root=self.keys_root,
+                    vector_store_root=self.vector_root,
+                    cancellation=cancellation,
+                )
         finally:
-            embedding_service_module.GoogleAIStudioEmbeddingProvider = original_provider
             cancel_thread.join(timeout=1)
 
         self.assertTrue(result.success)
@@ -227,6 +204,7 @@ class EmbeddingIngestionTests(unittest.TestCase):
         point_id = self._point_id(result.world_uuid, 1, 1)
         store = QdrantChunkStore(store_root=self.vector_root)
         try:
+            store.ensure_collection(self._embedding_profile())
             self.assertEqual(store.retrieve_existing_points([point_id]), {})
         finally:
             store.close()
@@ -358,12 +336,7 @@ class EmbeddingIngestionTests(unittest.TestCase):
         world_dir: Path,
         source_path: Path,
     ):
-        from backend.embeddings import service as embedding_service_module
-
-        original_provider = embedding_service_module.GoogleAIStudioEmbeddingProvider
-        embedding_service_module.GoogleAIStudioEmbeddingProvider = provider_class
-        provider_class.call_count = 0
-        try:
+        with self._provider(provider_class):
             return ingest_sources_into_existing_world(
                 world_name=world_name,
                 source_files=[source_path],
@@ -373,8 +346,6 @@ class EmbeddingIngestionTests(unittest.TestCase):
                 provider_keys_root=self.keys_root,
                 vector_store_root=self.vector_root,
             )
-        finally:
-            embedding_service_module.GoogleAIStudioEmbeddingProvider = original_provider
 
     def _write_google_key(self) -> None:
         provider_dir = self.keys_root / "google-ai-studio"
@@ -407,6 +378,18 @@ class EmbeddingIngestionTests(unittest.TestCase):
         # BLOCK 1: Build the same explicit embedding profile each test run so the tests mirror the real product rule that worlds must choose a model up front
         # WHY: The backend should never silently pick an embedder for new worlds, but the tests still need one compact helper to avoid repeating the same explicit model choice everywhere
         return create_embedding_profile(model_id="google/gemini-embedding-2-preview")
+
+    @contextmanager
+    def _provider(self, provider_class):
+        from backend.embeddings import service as embedding_service_module
+
+        original_provider_factory = embedding_service_module.create_embedding_provider
+        provider_class.call_count = 0
+        embedding_service_module.create_embedding_provider = lambda provider_id: provider_class()
+        try:
+            yield
+        finally:
+            embedding_service_module.create_embedding_provider = original_provider_factory
 
     def _cancel_after_delay(self, cancellation: EmbeddingRunCancellation) -> None:
         time.sleep(0.05)

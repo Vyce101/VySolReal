@@ -1,4 +1,4 @@
 import type { ProviderDefinition } from "../types";
-import { googleProvider } from "./google-ai-studio";
+import { sharedProviders } from "../shared-catalog";
 
-export const providers: readonly ProviderDefinition[] = [googleProvider];
+export const providers: readonly ProviderDefinition[] = sharedProviders;

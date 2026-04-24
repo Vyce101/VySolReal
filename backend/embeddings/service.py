@@ -9,7 +9,6 @@ from uuid import UUID, uuid5
 from backend.ingestion.txt_splitting.models import OperationEvent
 from backend.ingestion.txt_splitting.storage import read_chunk_file
 from backend.logger import get_logger
-from backend.models.google_ai_studio.gemini_embedding_2_preview import GoogleAIStudioEmbeddingProvider
 from backend.provider_keys import ProviderKeyScheduler, ProviderRateLimitFailure, default_provider_keys_root
 
 from .errors import EmbeddingConfigurationError, VectorStoreError
@@ -25,6 +24,7 @@ from .models import (
     WorldMetadata,
 )
 from .qdrant_store import QdrantChunkStore
+from .providers import create_embedding_provider
 from .storage import (
     chunk_text_hash,
     default_vector_store_root,
@@ -273,7 +273,7 @@ def _run_embedding_loop(
         )
         return
 
-    provider = GoogleAIStudioEmbeddingProvider()
+    provider = create_embedding_provider(world.embedding_profile.provider_id)
     futures: dict[Future[EmbeddingSuccess | EmbeddingFailure], tuple[EmbeddingWorkItem, ProviderCredential]] = {}
     pending_queue = pending_items[:]
 

@@ -1,0 +1,16 @@
+{
+  "providers": [
+    {
+      "id": "google",
+      "displayName": "Google AI Studio",
+      "apiKeyFilePath": "user/keys/google-ai-studio",
+      "settingsFile": "providers/google-ai-studio/settings.json",
+      "modelFiles": [
+        "providers/google-ai-studio/models/gemini-3-flash-preview.json",
+        "providers/google-ai-studio/models/gemini-3-1-flash-lite-preview.json",
+        "providers/google-ai-studio/models/gemma-4-31b-it.json",
+        "providers/google-ai-studio/models/gemini-embedding-2-preview.json"
+      ]
+    }
+  ]
+}

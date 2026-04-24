@@ -1,0 +1,51 @@
+{
+  "id": "google/gemini-3-flash-preview",
+  "displayName": "Gemini 3 Flash",
+  "callName": "gemini-3-flash-preview",
+  "description": "Intelligent speed-focused model combining frontier performance with search grounding, structured outputs, and long-context support.",
+  "surfaces": ["chat"],
+  "limits": {
+    "maxContextTokens": 1048576,
+    "maxInputTokens": 1048576,
+    "maxOutputTokens": 65536
+  },
+  "capabilities": {
+    "multimodalInput": true,
+    "searchGrounding": true,
+    "mediaResolution": true,
+    "safetySettings": true,
+    "stopSequences": true,
+    "codeExecution": true,
+    "structuredOutputs": true,
+    "functionCalling": true,
+    "thinking": true,
+    "googleMapsGrounding": true,
+    "urlContext": true,
+    "fileSearch": true
+  },
+  "settings": [
+    { "settingId": "temperature" },
+    { "settingId": "topP" },
+    { "settingId": "topK" },
+    { "settingId": "maxInputTokens", "limitKey": "maxInputTokens" },
+    { "settingId": "maxOutputTokens", "defaultValue": 65536, "max": 65536 },
+    { "settingId": "enableSearch" },
+    { "settingId": "codeExecution" },
+    { "settingId": "harassmentSafety" },
+    { "settingId": "hateSpeechSafety" },
+    { "settingId": "sexuallyExplicitSafety" },
+    { "settingId": "dangerousContentSafety" },
+    { "settingId": "urlContext" },
+    {
+      "settingId": "thinkingLevel",
+      "defaultValue": "high",
+      "options": [
+        { "value": "minimal", "label": "Minimal" },
+        { "value": "low", "label": "Low" },
+        { "value": "medium", "label": "Medium" },
+        { "value": "high", "label": "High" }
+      ]
+    },
+    { "settingId": "mediaResolution" }
+  ]
+}

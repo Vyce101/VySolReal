@@ -1,0 +1,24 @@
+{
+  "id": "google/gemini-embedding-2-preview",
+  "displayName": "Gemini Embedding 2",
+  "callName": "gemini-embedding-2-preview",
+  "description": "Preview multimodal embedding model designed for semantic search and retrieval across text, image, video, audio, and document inputs.",
+  "surfaces": ["embedding"],
+  "limits": {
+    "maxInputTokens": 8192,
+    "maxEmbeddingDimensions": 3072
+  },
+  "capabilities": {
+    "structuredOutputs": false
+  },
+  "settings": [
+    { "settingId": "maxInputTokens", "limitKey": "maxInputTokens" },
+    {
+      "settingId": "outputDimensionality",
+      "limitKey": "maxEmbeddingDimensions",
+      "min": 128,
+      "step": 128
+    },
+    { "settingId": "embeddingTitle" }
+  ]
+}

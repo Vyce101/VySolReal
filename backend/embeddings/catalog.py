@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from backend.models.registry import SharedModelDefinition, load_default_model_registry
+
 from .errors import EmbeddingConfigurationError
 from .models import EmbeddingProfile
 
@@ -22,31 +24,19 @@ class SupportedEmbeddingModel:
     max_input_tokens: int
 
 
-SUPPORTED_EMBEDDING_MODELS: dict[str, SupportedEmbeddingModel] = {
-    "google/gemini-embedding-2-preview": SupportedEmbeddingModel(
-        provider_id="google",
-        model_id="google/gemini-embedding-2-preview",
-        call_name="gemini-embedding-2-preview",
-        default_dimensions=3072,
-        max_dimensions=3072,
-        max_input_tokens=8192,
-    ),
-}
-
-
 def get_supported_embedding_model(model_id: str) -> SupportedEmbeddingModel:
     """Return the backend-owned embedding model definition."""
-    # BLOCK 1: Resolve the requested embedding model from the backend-owned catalog and fail fast if it is unsupported
-    # VARS: supported_model = backend definition that maps a stable VySol model id to the provider call name and dimensional limits
-    # WHY: The embedding pipeline must not trust arbitrary model ids from user data because Qdrant schema, provider requests, and resume behavior all depend on a known contract
-    supported_model = SUPPORTED_EMBEDDING_MODELS.get(model_id)
-    if supported_model is None:
+    # BLOCK 1: Resolve the requested embedding model from the shared app registry and fail fast if it is not an embedding-capable model
+    # VARS: shared_model = language-neutral model metadata loaded from the same JSON file the TypeScript registry uses
+    # WHY: Embedding support must not depend on a second Python-only allowlist, or adding a model for the UI could silently fail in the backend
+    shared_model = load_default_model_registry().get_model(model_id)
+    if shared_model is None or "embedding" not in shared_model.surfaces:
         raise EmbeddingConfigurationError(
             code="UNSUPPORTED_EMBEDDING_MODEL",
             message="The selected embedding model is not supported by the backend embedding pipeline.",
             details={"model_id": model_id},
         )
-    return supported_model
+    return _embedding_model_from_shared_definition(shared_model)
 
 
 def create_embedding_profile(*, model_id: str) -> EmbeddingProfile:
@@ -72,11 +62,32 @@ def lock_profile_to_model_maxima(profile: EmbeddingProfile) -> EmbeddingProfile:
     normalized_settings = dict(profile.extra_settings)
     normalized_settings["max_input_tokens"] = supported_model.max_input_tokens
     return EmbeddingProfile(
-        provider_id=profile.provider_id,
-        model_id=profile.model_id,
+        provider_id=supported_model.provider_id,
+        model_id=supported_model.model_id,
         dimensions=supported_model.max_dimensions,
         task_type=profile.task_type,
         profile_version=profile.profile_version,
         title=profile.title,
         extra_settings=normalized_settings,
+    )
+
+
+def _embedding_model_from_shared_definition(shared_model: SharedModelDefinition) -> SupportedEmbeddingModel:
+    # BLOCK 1: Validate the embedding fields the backend needs, then project the shared model into the existing embedding contract
+    # WHY: UI metadata can be broader than backend embedding metadata, but provider calls and Qdrant schemas require concrete call names, max input tokens, and vector dimensions
+    max_input_tokens = shared_model.limits.get("maxInputTokens")
+    max_dimensions = shared_model.limits.get("maxEmbeddingDimensions")
+    if max_input_tokens is None or max_dimensions is None:
+        raise EmbeddingConfigurationError(
+            code="EMBEDDING_MODEL_CONTRACT_INCOMPLETE",
+            message="The selected embedding model is missing backend-required embedding limits.",
+            details={"model_id": shared_model.id},
+        )
+    return SupportedEmbeddingModel(
+        provider_id=shared_model.provider_id,
+        model_id=shared_model.id,
+        call_name=shared_model.call_name,
+        default_dimensions=max_dimensions,
+        max_dimensions=max_dimensions,
+        max_input_tokens=max_input_tokens,
     )

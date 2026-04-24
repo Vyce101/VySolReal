@@ -10,7 +10,7 @@ It also exists so vector persistence can be validated independently from chunk p
 
 ## How Chunk Embeddings Are Stored In Qdrant
 
-VySol uses one shared local Qdrant store for the app rather than one separate store per world. Right now the active collection is `chunks`. The world UUID is stored as payload metadata so one shared collection can still isolate retrieval per world.
+VySol uses one shared local Qdrant store for the app rather than one separate store per world. Inside that store, chunk vectors are split into profile-specific collections. Each collection name is derived from the locked embedding provider, model, dimensions, task type, and profile version. The world UUID is still stored as payload metadata so worlds that share the same embedding profile can stay isolated inside the same collection.
 
 Each chunk embedding is stored under a stable point id derived from the world UUID, book number, and chunk number. The text hash is stored in payload, not in the point id. That means when a chunk's text changes, VySol overwrites the same logical point instead of creating a duplicate record for the same chunk slot.
 
@@ -27,6 +27,7 @@ The vector payload keeps retrieval metadata such as the world UUID, source filen
   "model_id": "google/gemini-embedding-2-preview",
   "task_type": "RETRIEVAL_DOCUMENT",
   "dimensions": 3072,
+  "embedding_profile_key": "5030236c06f1118e",
   "text_hash": "9fd72d4eb18a4f8df4a9fe9de718d2558c7ee2f4d40fe2f329f7de7f5d0dff0f"
 }
 ```
@@ -37,7 +38,7 @@ Qdrant only becomes trusted after the upsert succeeds. The embedding manifest is
 
 ## Why Qdrant Is Shaped This Way
 
-The shared-store design keeps the vector layer simpler to operate while still allowing worlds to stay isolated by `world_uuid`. That gives VySol one searchable vector boundary for future growth into chunks, nodes, and hybrid retrieval without multiplying local database lifecycle problems for every world.
+The shared-store design keeps the vector layer simpler to operate while still allowing worlds to stay isolated by `world_uuid`. Profile-specific collections avoid Qdrant's single-vector-size-per-collection constraint without multiplying local database lifecycle problems for every world.
 
 The stable point-id design is deliberate too. If the text hash were part of the point id, every content change would create a brand-new point and stale cleanup would become mandatory for every update. Using a stable chunk-slot id makes overwrite behavior predictable and keeps one logical chunk tied to one logical vector record.
 

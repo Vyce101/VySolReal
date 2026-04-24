@@ -1,0 +1,45 @@
+{
+  "id": "google/gemma-4-31b-it",
+  "displayName": "Gemma 4 31B",
+  "callName": "gemma-4-31b-it",
+  "description": "Flagship open-weight dense model built for high-quality data-center workloads, with a 256K context window and advanced long-context architecture.",
+  "surfaces": ["chat"],
+  "limits": {
+    "maxContextTokens": 256000,
+    "maxInputTokens": 256000,
+    "maxOutputTokens": 65536
+  },
+  "capabilities": {
+    "multimodalInput": true,
+    "searchGrounding": true,
+    "mediaResolution": true,
+    "safetySettings": true,
+    "stopSequences": true,
+    "codeExecution": true,
+    "structuredOutputs": true,
+    "functionCalling": true,
+    "thinking": true
+  },
+  "settings": [
+    { "settingId": "temperature" },
+    { "settingId": "topP" },
+    { "settingId": "topK" },
+    { "settingId": "maxInputTokens", "limitKey": "maxInputTokens" },
+    { "settingId": "maxOutputTokens", "defaultValue": 32768, "max": 65536 },
+    { "settingId": "enableSearch" },
+    { "settingId": "codeExecution" },
+    { "settingId": "harassmentSafety" },
+    { "settingId": "hateSpeechSafety" },
+    { "settingId": "sexuallyExplicitSafety" },
+    { "settingId": "dangerousContentSafety" },
+    {
+      "settingId": "thinkingLevel",
+      "defaultValue": "high",
+      "options": [
+        { "value": "minimal", "label": "Minimal" },
+        { "value": "high", "label": "High" }
+      ]
+    },
+    { "settingId": "mediaResolution" }
+  ]
+}

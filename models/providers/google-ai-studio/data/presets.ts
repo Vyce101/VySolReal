@@ -1,23 +1,12 @@
 import type { ModelCapabilities, ModelSettingConfig } from "../../../types";
+import { gemini3FlashPreviewModel } from "../gemini-3-flash-preview";
+import { gemma431bItModel } from "../gemma-4-31b-it";
 
-export const googleChatCapabilities: ModelCapabilities = {
-  multimodalInput: true,
-  searchGrounding: true,
-  mediaResolution: true,
-  safetySettings: true,
-  stopSequences: true,
-  codeExecution: true,
-  structuredOutputs: true,
-  functionCalling: true,
-  thinking: true,
-};
+export const googleChatCapabilities: ModelCapabilities =
+  gemma431bItModel.capabilities ?? {};
 
-export const googleGeminiChatCapabilities: ModelCapabilities = {
-  ...googleChatCapabilities,
-  googleMapsGrounding: true,
-  urlContext: true,
-  fileSearch: true,
-};
+export const googleGeminiChatCapabilities: ModelCapabilities =
+  gemini3FlashPreviewModel.capabilities ?? {};
 
 export const googleChatSamplingSettings: readonly ModelSettingConfig[] = [
   { settingId: "temperature" },

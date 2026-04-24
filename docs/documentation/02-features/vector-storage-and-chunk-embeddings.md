@@ -42,7 +42,7 @@ Before VySol sends a chunk to the provider, it checks the locked max input token
 
 If the chunk fits that preflight, VySol sends one text per request, but it can run multiple single-chunk requests concurrently across the book. Provider keys are selected through the shared [Provider Key Scheduler](provider-key-scheduler.md), so embeddings use the same enabled-key, failover, model-aware quota bucket, and cooldown behavior that future AI workflows will use.
 
-The provider call returns a vector, and that vector is written into Qdrant under a stable point id derived from the world UUID, book number, and chunk number. The point id does not include the text hash, which means the same logical chunk slot is overwritten when the text changes instead of creating a second logical copy.
+The provider call returns a vector, and that vector is written into the Qdrant collection for the world's locked embedding profile under a stable point id derived from the world UUID, book number, and chunk number. The point id does not include the text hash, which means the same logical chunk slot is overwritten when the text changes instead of creating a second logical copy.
 
 Only after Qdrant confirms the upsert does VySol mark the chunk as embedded in the embedding manifest. That order matters because the manifest is not allowed to claim retrieval data exists before the vector store has actually confirmed it.
 
@@ -85,4 +85,4 @@ That is why task type is not a normal user-facing toggle here. For chunk embeddi
 
 The separate embedding manifest exists for the same reason. Chunk persistence and vector persistence can fail independently, so they need independent truth. The chunk manifest answers, "does the chunk file exist?" The embedding manifest answers, "does the confirmed vector for this exact chunk text exist?" Keeping those answers separate is what makes resume trustworthy.
 
-Finally, the shared local Qdrant store is used because retrieval wants one durable vector layer that can filter by world UUID while still supporting future growth into millions of chunk or node records. Worlds remain exportable and deletable because the storage identity is the stable world UUID, while the visible world name remains editable metadata.
+Finally, the shared local Qdrant store is used because retrieval wants one durable vector layer that can filter by world UUID while still supporting future growth into millions of chunk or node records. Collections are separated by embedding profile so different worlds can use different vector dimensions later without colliding. Worlds remain exportable and deletable because the storage identity is the stable world UUID, while the visible world name remains editable metadata.
