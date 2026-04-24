@@ -9,10 +9,15 @@ from pathlib import Path
 from uuid import uuid4
 
 from backend.ingestion.txt_splitting.storage import atomic_write_json
+from backend.provider_keys.storage import (
+    load_provider_runtime_states,
+    provider_runtime_state_file_path,
+    save_provider_runtime_states,
+)
 
 from .catalog import lock_profile_to_model_maxima
 from .errors import EmbeddingConfigurationError
-from .models import EmbeddingManifest, ProviderRuntimeState, WorldMetadata, EmbeddingProfile
+from .models import EmbeddingManifest, WorldMetadata, EmbeddingProfile
 
 
 def world_metadata_file_path(world_dir: Path) -> Path:
@@ -90,38 +95,6 @@ def save_embedding_manifest(manifest_path: Path, manifest: EmbeddingManifest) ->
 def default_vector_store_root() -> Path:
     """Resolve the shared vector store root."""
     return Path(__file__).resolve().parents[2] / "user" / "vector_store"
-
-
-def provider_runtime_state_file_path(provider_keys_root: Path | None = None) -> Path:
-    """Return the runtime state file path for provider cooldown metadata."""
-    resolved_root = provider_keys_root if provider_keys_root is not None else Path(__file__).resolve().parents[2] / "user" / "keys"
-    return resolved_root / ".runtime_state.json"
-
-
-def load_provider_runtime_states(provider_keys_root: Path | None = None) -> dict[str, ProviderRuntimeState]:
-    """Load persisted provider cooldown states."""
-    # BLOCK 1: Load the shared provider runtime state file and default to an empty state map when no cooldown metadata has been saved yet
-    # WHY: Runtime limit state is optional support data, so the scheduler must be able to start from a clean slate on first run without treating a missing state file as corruption
-    state_path = provider_runtime_state_file_path(provider_keys_root)
-    if not state_path.exists():
-        return {}
-    payload = json.loads(state_path.read_text(encoding="utf-8"))
-    return {
-        scope_key: ProviderRuntimeState.from_dict(dict(state_payload))
-        for scope_key, state_payload in payload.items()
-    }
-
-
-def save_provider_runtime_states(
-    states: dict[str, ProviderRuntimeState],
-    provider_keys_root: Path | None = None,
-) -> None:
-    """Persist provider runtime cooldown states."""
-    state_path = provider_runtime_state_file_path(provider_keys_root)
-    atomic_write_json(
-        state_path,
-        {scope_key: state.to_dict() for scope_key, state in states.items()},
-    )
 
 
 def utc_now() -> datetime:

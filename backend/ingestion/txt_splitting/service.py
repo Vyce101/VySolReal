@@ -5,11 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from backend.embeddings.errors import EmbeddingConfigurationError, VectorStoreError
-from backend.embeddings.keys import load_provider_credentials
 from backend.embeddings.models import EmbeddingProfile, EmbeddingRunCancellation
 from backend.embeddings.service import embed_book_chunks
 from backend.embeddings.storage import ensure_world_metadata
 from backend.logger import get_logger
+from backend.provider_keys.errors import ProviderKeyConfigurationError
+from backend.provider_keys.keys import load_eligible_provider_credentials
 
 from .chunking import split_text
 from .converters import get_converter, has_usable_text
@@ -478,14 +479,18 @@ def _ensure_embedding_credentials_available(
 ) -> None:
     # BLOCK 1: Check for at least one credential that can serve the world's locked embedding model before any source copying or chunk writes begin
     # WHY: The user asked for missing-key failures before ingestion work starts, so the run must stop before creating partial chunk state that can never be embedded
-    eligible_credentials = [
-        credential
-        for credential in load_provider_credentials(
+    try:
+        eligible_credentials = load_eligible_provider_credentials(
             provider_id=embedding_profile.provider_id,
+            model_id=embedding_profile.model_id,
             provider_keys_root=provider_keys_root,
         )
-        if credential.supports_model(embedding_profile.model_id)
-    ]
+    except ProviderKeyConfigurationError as error:
+        raise IngestionError(
+            code=error.code,
+            message=error.message,
+            details=error.details,
+        ) from error
     if not eligible_credentials:
         logger.error(
             "TXT ingestion blocked before chunking because no provider credentials can serve model=%s provider=%s.",
@@ -534,7 +539,7 @@ def _embed_book_chunks_for_world(
             concurrency=embedding_concurrency,
             cancellation=cancellation,
         )
-    except (EmbeddingConfigurationError, VectorStoreError) as error:
+    except (EmbeddingConfigurationError, ProviderKeyConfigurationError, VectorStoreError) as error:
         raise IngestionError(
             code=error.code,
             message=error.message,

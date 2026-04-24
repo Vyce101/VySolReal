@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass
-from datetime import timedelta
 from pathlib import Path
 from uuid import UUID, uuid5
 
@@ -13,11 +10,10 @@ from backend.ingestion.txt_splitting.models import OperationEvent
 from backend.ingestion.txt_splitting.storage import read_chunk_file
 from backend.logger import get_logger
 from backend.models.google_ai_studio.gemini_embedding_2_preview import GoogleAIStudioEmbeddingProvider
+from backend.provider_keys import ProviderKeyScheduler, ProviderRateLimitFailure, default_provider_keys_root
 
 from .errors import EmbeddingConfigurationError, VectorStoreError
-from .keys import default_provider_keys_root, load_provider_credentials
 from .models import (
-    CredentialModelLimits,
     EmbeddingBookResult,
     EmbeddingFailure,
     EmbeddingManifest,
@@ -26,7 +22,6 @@ from .models import (
     EmbeddingSuccess,
     EmbeddingWorkItem,
     ProviderCredential,
-    ProviderRuntimeState,
     WorldMetadata,
 )
 from .qdrant_store import QdrantChunkStore
@@ -35,9 +30,7 @@ from .storage import (
     default_vector_store_root,
     embedding_manifest_file_path,
     load_embedding_manifest,
-    load_provider_runtime_states,
     save_embedding_manifest,
-    save_provider_runtime_states,
     utc_now,
 )
 
@@ -45,15 +38,6 @@ _MAX_RETRIES_PER_CHUNK = 3
 _DEFAULT_GLOBAL_CONCURRENCY = 4
 
 logger = get_logger(__name__)
-
-
-@dataclass(slots=True)
-class _ScopeWindow:
-    requests_in_window: list[float]
-    tokens_in_window: list[tuple[float, int]]
-    requests_today: int = 0
-    request_day: str | None = None
-    runtime_blocked_for_run: bool = False
 
 
 def embed_book_chunks(
@@ -69,7 +53,7 @@ def embed_book_chunks(
     cancellation: EmbeddingRunCancellation | None = None,
 ) -> tuple[EmbeddingBookResult, list[OperationEvent]]:
     """Embed one book's chunks into the shared Qdrant store."""
-    # BLOCK 1: Resolve storage roots, provider credentials, and the shared vector store before any per-chunk embedding work begins
+    # BLOCK 1: Resolve storage roots, the shared provider-key scheduler, and the shared vector store before any per-chunk embedding work begins
     # WHY: Failing on missing configuration or a broken vector store up front avoids launching provider requests that could never be persisted safely
     resolved_keys_root = provider_keys_root if provider_keys_root is not None else default_provider_keys_root()
     resolved_vector_root = vector_store_root if vector_store_root is not None else default_vector_store_root()
@@ -87,15 +71,11 @@ def embed_book_chunks(
     store = QdrantChunkStore(store_root=resolved_vector_root)
     try:
         store.ensure_collection(world.embedding_profile)
-        credentials = [
-            credential
-            for credential in load_provider_credentials(
-                provider_id=world.embedding_profile.provider_id,
-                provider_keys_root=resolved_keys_root,
-            )
-            if credential.supports_model(world.embedding_profile.model_id)
-        ]
-        runtime_states = load_provider_runtime_states(resolved_keys_root)
+        scheduler = ProviderKeyScheduler.for_model(
+            provider_id=world.embedding_profile.provider_id,
+            model_id=world.embedding_profile.model_id,
+            provider_keys_root=resolved_keys_root,
+        )
 
         # BLOCK 2: Load or create the per-book embedding manifest, then reconcile it against the current chunk files and Qdrant truth
         # VARS: manifest_path = stable per-book embedding manifest file, manifest = mutable per-book embedding state used for resume and reconciliation
@@ -117,7 +97,7 @@ def embed_book_chunks(
 
         # BLOCK 3: Stop early with a warning if the user has not configured any eligible provider credentials yet
         # WHY: Missing keys are a user setup issue rather than a corrupt world state, so the ingest should stay resumable and report the reason cleanly
-        if not credentials:
+        if not scheduler.credentials:
             logger.warning(
                 "Embedding run has no eligible credentials for world_uuid=%s book=%s provider=%s model=%s.",
                 world.world_uuid,
@@ -145,14 +125,12 @@ def embed_book_chunks(
             world=world,
             chunk_paths=chunk_paths,
             store=store,
-            credentials=credentials,
-            runtime_states=runtime_states,
-            provider_keys_root=resolved_keys_root,
+            scheduler=scheduler,
             concurrency=concurrency,
             cancellation=cancellation_handle,
             warnings=warnings,
         )
-        save_provider_runtime_states(runtime_states, resolved_keys_root)
+        scheduler.save_runtime_states()
         save_embedding_manifest(manifest_path, manifest)
         result = _result_from_manifest(manifest, manifest_path)
         logger.info(
@@ -274,9 +252,7 @@ def _run_embedding_loop(
     world: WorldMetadata,
     chunk_paths: list[str],
     store: QdrantChunkStore,
-    credentials: list[ProviderCredential],
-    runtime_states: dict[str, ProviderRuntimeState],
-    provider_keys_root: Path,
+    scheduler: ProviderKeyScheduler,
     concurrency: int,
     cancellation: EmbeddingRunCancellation,
     warnings: list[OperationEvent],
@@ -300,7 +276,6 @@ def _run_embedding_loop(
     provider = GoogleAIStudioEmbeddingProvider()
     futures: dict[Future[EmbeddingSuccess | EmbeddingFailure], tuple[EmbeddingWorkItem, ProviderCredential]] = {}
     pending_queue = pending_items[:]
-    scope_windows: dict[str, _ScopeWindow] = {}
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as executor:
         while pending_queue or futures:
@@ -308,12 +283,8 @@ def _run_embedding_loop(
             # WHY: The run-level concurrency cap smooths provider load, while credential-aware dispatch keeps one cooling-down credential from stalling the entire book
             while not cancellation.is_cancelled and len(futures) < max(1, concurrency) and pending_queue:
                 work_item = pending_queue[0]
-                credential = _select_credential_for_work_item(
-                    credentials=credentials,
-                    profile=world.embedding_profile,
-                    runtime_states=runtime_states,
-                    scope_windows=scope_windows,
-                    chunk_text=work_item.chunk_text,
+                credential = scheduler.select_credential(
+                    token_estimate=_estimate_tokens(work_item.chunk_text),
                 )
                 if credential is None:
                     break
@@ -346,14 +317,14 @@ def _run_embedding_loop(
                 break
 
             if not futures:
-                if not _has_future_credential_availability(runtime_states=runtime_states):
+                if not scheduler.has_future_credential_availability():
                     logger.warning(
                         "Embedding run paused with pending chunks because no credentials are currently usable for world_uuid=%s book=%s.",
                         world.world_uuid,
                         manifest.book_number,
                     )
                     break
-                _wait_for_next_available_credential(runtime_states=runtime_states)
+                scheduler.wait_for_next_available_credential()
                 continue
 
             done, _ = wait(set(futures.keys()), return_when=FIRST_COMPLETED)
@@ -370,8 +341,7 @@ def _run_embedding_loop(
                     )
                     continue
                 if isinstance(outcome, EmbeddingSuccess):
-                    _record_scope_usage(
-                        scope_windows=scope_windows,
+                    scheduler.record_success(
                         scope_key=outcome.quota_scope,
                         token_estimate=_estimate_tokens(work_item.chunk_text),
                     )
@@ -390,9 +360,7 @@ def _run_embedding_loop(
                     credential=credential,
                     failure=outcome,
                     pending_queue=pending_queue,
-                    runtime_states=runtime_states,
-                    scope_windows=scope_windows,
-                    provider_keys_root=provider_keys_root,
+                    scheduler=scheduler,
                     warnings=warnings,
                 )
 
@@ -466,9 +434,7 @@ def _handle_embedding_failure(
     credential: ProviderCredential,
     failure: EmbeddingFailure,
     pending_queue: list[EmbeddingWorkItem],
-    runtime_states: dict[str, ProviderRuntimeState],
-    scope_windows: dict[str, _ScopeWindow],
-    provider_keys_root: Path,
+    scheduler: ProviderKeyScheduler,
     warnings: list[OperationEvent],
 ) -> None:
     # BLOCK 1: Update chunk retry state, runtime cooldown state, and user-visible warnings from one failed provider request
@@ -489,13 +455,14 @@ def _handle_embedding_failure(
     )
 
     if failure.rate_limit_type is not None:
-        _apply_rate_limit_failure(
-            runtime_states=runtime_states,
-            scope_windows=scope_windows,
+        scheduler.apply_rate_limit_failure(
             credential=credential,
-            failure=failure,
+            failure=ProviderRateLimitFailure(
+                rate_limit_type=failure.rate_limit_type,
+                message=failure.message,
+                retry_after_seconds=failure.retry_after_seconds,
+            ),
         )
-        save_provider_runtime_states(runtime_states, provider_keys_root)
         warning = OperationEvent(
             code="EMBEDDING_PROVIDER_RATE_LIMITED",
             message=f"{failure.credential_name} hit {failure.rate_limit_type.upper()} limits and was cooled down.",
@@ -535,162 +502,6 @@ def _handle_embedding_failure(
             state.retry_count,
         )
     save_embedding_manifest(manifest_path, manifest)
-
-
-def _apply_rate_limit_failure(
-    *,
-    runtime_states: dict[str, ProviderRuntimeState],
-    scope_windows: dict[str, _ScopeWindow],
-    credential: ProviderCredential,
-    failure: EmbeddingFailure,
-) -> None:
-    # BLOCK 1: Persist the provider cooldown using absolute UTC machine time so restarts and resumes can tell when the credential becomes usable again
-    # WHY: An app-internal timer would be lost on restart, and rate-limit recovery must still work correctly after the process exits and resumes later
-    state = runtime_states.get(credential.quota_scope)
-    if state is None:
-        state = ProviderRuntimeState(
-            scope_key=credential.quota_scope,
-            provider_id=credential.provider_id,
-            credential_name=credential.display_name,
-            project_id=credential.project_id,
-        )
-        runtime_states[credential.quota_scope] = state
-    state.last_limit_type = failure.rate_limit_type
-    state.last_error_message = failure.message
-    scope_window = scope_windows.setdefault(credential.quota_scope, _ScopeWindow(requests_in_window=[], tokens_in_window=[]))
-    if failure.rate_limit_type == "rpd":
-        scope_window.runtime_blocked_for_run = True
-        state.cooldown_until_utc = None
-        logger.warning(
-            "Credential=%s quota_scope=%s was blocked for the rest of this run after hitting RPD.",
-            credential.display_name,
-            credential.quota_scope,
-        )
-        return
-    retry_after_seconds = failure.retry_after_seconds if failure.retry_after_seconds is not None else 60
-    state.cooldown_until_utc = (utc_now() + timedelta(seconds=retry_after_seconds)).isoformat()
-    logger.warning(
-        "Credential=%s quota_scope=%s cooled down until=%s after hitting %s.",
-        credential.display_name,
-        credential.quota_scope,
-        state.cooldown_until_utc,
-        failure.rate_limit_type.upper() if failure.rate_limit_type is not None else "RATE_LIMIT",
-    )
-
-
-def _select_credential_for_work_item(
-    *,
-    credentials: list[ProviderCredential],
-    profile: EmbeddingProfile,
-    runtime_states: dict[str, ProviderRuntimeState],
-    scope_windows: dict[str, _ScopeWindow],
-    chunk_text: str,
-) -> ProviderCredential | None:
-    # BLOCK 1: Choose the next usable credential whose persisted cooldown and optional user-entered scheduler limits both allow more work right now
-    # WHY: The scheduler should keep progress moving across eligible credentials while avoiding preventable limit hits when the user has supplied trustworthy soft limits
-    token_estimate = _estimate_tokens(chunk_text)
-    now = utc_now()
-    for credential in credentials:
-        state = runtime_states.get(credential.quota_scope)
-        scope_window = scope_windows.setdefault(credential.quota_scope, _ScopeWindow(requests_in_window=[], tokens_in_window=[]))
-        if scope_window.runtime_blocked_for_run:
-            continue
-        if state is not None and state.cooldown_until is not None and state.cooldown_until > now:
-            continue
-        limits = credential.model_limits.get(profile.model_id)
-        if limits is not None and not _scope_can_accept_request(
-            scope_windows=scope_windows,
-            scope_key=credential.quota_scope,
-            limits=limits,
-            token_estimate=token_estimate,
-        ):
-            continue
-        logger.info(
-            "Selected credential=%s quota_scope=%s for model=%s.",
-            credential.display_name,
-            credential.quota_scope,
-            profile.model_id,
-        )
-        return credential
-    return None
-
-
-def _scope_can_accept_request(
-    *,
-    scope_windows: dict[str, _ScopeWindow],
-    scope_key: str,
-    limits: CredentialModelLimits,
-    token_estimate: int,
-) -> bool:
-    # BLOCK 1: Enforce optional user-entered RPM, TPM, and RPD limits as soft scheduler guidance before dispatching a new request
-    # WHY: Users on different billing tiers can know their real limits better than the backend, so honoring those hints reduces needless provider errors even though provider responses still win
-    window = scope_windows.setdefault(scope_key, _ScopeWindow(requests_in_window=[], tokens_in_window=[]))
-    now = time.monotonic()
-    _trim_scope_window(window=window, now=now)
-    current_day = utc_now().date().isoformat()
-    if window.request_day != current_day:
-        window.request_day = current_day
-        window.requests_today = 0
-    if limits.requests_per_minute is not None and len(window.requests_in_window) >= limits.requests_per_minute:
-        return False
-    if limits.tokens_per_minute is not None and sum(token_count for _, token_count in window.tokens_in_window) + token_estimate > limits.tokens_per_minute:
-        return False
-    if limits.requests_per_day is not None and window.requests_today >= limits.requests_per_day:
-        return False
-    return True
-
-
-def _record_scope_usage(
-    *,
-    scope_windows: dict[str, _ScopeWindow],
-    scope_key: str,
-    token_estimate: int,
-) -> None:
-    # BLOCK 1: Record one completed request against the in-memory scheduler window so future dispatch decisions can honor optional RPM and TPM guidance
-    # WHY: Soft limits only influence scheduling if the run remembers its own recent usage, and that per-minute history does not need to persist across restarts because resume intentionally retries again
-    window = scope_windows.setdefault(scope_key, _ScopeWindow(requests_in_window=[], tokens_in_window=[]))
-    now = time.monotonic()
-    _trim_scope_window(window=window, now=now)
-    current_day = utc_now().date().isoformat()
-    if window.request_day != current_day:
-        window.request_day = current_day
-        window.requests_today = 0
-    window.requests_in_window.append(now)
-    window.tokens_in_window.append((now, token_estimate))
-    window.requests_today += 1
-
-
-def _trim_scope_window(*, window: _ScopeWindow, now: float) -> None:
-    # BLOCK 1: Drop request and token entries older than one minute from the scheduler window
-    # WHY: RPM and TPM checks only care about the last rolling minute, so stale entries must be removed before comparing the next request against the configured limits
-    cutoff = now - 60
-    window.requests_in_window = [timestamp for timestamp in window.requests_in_window if timestamp >= cutoff]
-    window.tokens_in_window = [(timestamp, token_count) for timestamp, token_count in window.tokens_in_window if timestamp >= cutoff]
-
-
-def _wait_for_next_available_credential(*, runtime_states: dict[str, ProviderRuntimeState]) -> None:
-    # BLOCK 1: Sleep until the nearest persisted cooldown expires when every credential is temporarily unavailable
-    # WHY: A short bounded sleep keeps the run from busy-spinning while still letting the machine clock govern when a cooled-down credential becomes usable again
-    cooldowns = [
-        state.cooldown_until
-        for state in runtime_states.values()
-        if state.cooldown_until is not None and state.cooldown_until > utc_now()
-    ]
-    if not cooldowns:
-        time.sleep(0.1)
-        return
-    next_cooldown = min(cooldowns)
-    sleep_seconds = max(0.1, min(2.0, (next_cooldown - utc_now()).total_seconds()))
-    time.sleep(sleep_seconds)
-
-
-def _has_future_credential_availability(*, runtime_states: dict[str, ProviderRuntimeState]) -> bool:
-    # BLOCK 1: Detect whether any credential is only temporarily cooled down instead of permanently blocked for the current run
-    # WHY: When every remaining credential is unavailable without a future cooldown expiry, the embedding loop should stop and leave the remaining chunks pending instead of spinning forever
-    return any(
-        state.cooldown_until is not None and state.cooldown_until > utc_now()
-        for state in runtime_states.values()
-    )
 
 
 def _result_from_manifest(manifest: EmbeddingManifest, manifest_path: Path) -> EmbeddingBookResult:

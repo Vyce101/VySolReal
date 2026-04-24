@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import threading
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
 from pathlib import Path
+
+from backend.provider_keys.models import CredentialModelLimits, ProviderCredential, ProviderRuntimeState
 
 
 @dataclass(slots=True, frozen=True)
@@ -222,85 +223,6 @@ class EmbeddingBookResult:
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
-
-
-@dataclass(slots=True, frozen=True)
-class CredentialModelLimits:
-    """Optional per-model scheduler guidance for one credential."""
-
-    requests_per_minute: int | None = None
-    tokens_per_minute: int | None = None
-    requests_per_day: int | None = None
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "CredentialModelLimits":
-        return cls(
-            requests_per_minute=int(payload["requests_per_minute"]) if payload.get("requests_per_minute") is not None else None,
-            tokens_per_minute=int(payload["tokens_per_minute"]) if payload.get("tokens_per_minute") is not None else None,
-            requests_per_day=int(payload["requests_per_day"]) if payload.get("requests_per_day") is not None else None,
-        )
-
-
-@dataclass(slots=True, frozen=True)
-class ProviderCredential:
-    """One provider credential loaded from the user key store."""
-
-    provider_id: str
-    credential_name: str
-    api_key: str
-    project_id: str | None
-    allowed_models: frozenset[str]
-    model_limits: dict[str, CredentialModelLimits]
-
-    @property
-    def quota_scope(self) -> str:
-        # BLOCK 1: Collapse credentials that share one provider quota pool into one scheduler scope key
-        # WHY: Google AI Studio quotas are project-shared, so scheduling per raw key would overestimate available capacity when several keys point at the same project
-        if self.project_id:
-            return f"{self.provider_id}:project:{self.project_id}"
-        return f"{self.provider_id}:credential:{self.credential_name}"
-
-    @property
-    def display_name(self) -> str:
-        return self.credential_name or self.api_key
-
-    def supports_model(self, model_id: str) -> bool:
-        return not self.allowed_models or model_id in self.allowed_models
-
-
-@dataclass(slots=True)
-class ProviderRuntimeState:
-    """Persisted provider cooldown state shared across runs."""
-
-    scope_key: str
-    provider_id: str
-    credential_name: str
-    project_id: str | None = None
-    last_limit_type: str | None = None
-    cooldown_until_utc: str | None = None
-    last_error_message: str | None = None
-
-    def to_dict(self) -> dict[str, object]:
-        payload = asdict(self)
-        return {key: value for key, value in payload.items() if value is not None}
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "ProviderRuntimeState":
-        return cls(
-            scope_key=str(payload["scope_key"]),
-            provider_id=str(payload["provider_id"]),
-            credential_name=str(payload["credential_name"]),
-            project_id=str(payload["project_id"]) if payload.get("project_id") is not None else None,
-            last_limit_type=str(payload["last_limit_type"]) if payload.get("last_limit_type") is not None else None,
-            cooldown_until_utc=str(payload["cooldown_until_utc"]) if payload.get("cooldown_until_utc") is not None else None,
-            last_error_message=str(payload["last_error_message"]) if payload.get("last_error_message") is not None else None,
-        )
-
-    @property
-    def cooldown_until(self) -> datetime | None:
-        if self.cooldown_until_utc is None:
-            return None
-        return datetime.fromisoformat(self.cooldown_until_utc)
 
 
 @dataclass(slots=True)

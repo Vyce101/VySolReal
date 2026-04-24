@@ -11,6 +11,7 @@
 - Internal documentation pages for Text Splitting and the current ingestion architecture.
 - Automatic chunk embedding during ingestion with locked world embedding profiles.
 - Shared local Qdrant vector storage with per-book embedding manifests and resumable vector reconciliation.
+- Shared provider key scheduler with optional `enabled` flags and a dedicated concept page for future UI-controlled key disabling.
 - Internal documentation pages for World Storage, Vector Storage And Chunk Embeddings, and Qdrant Vector Store.
 
 ### Changed

@@ -10,7 +10,7 @@ VySol also needs that process to be safe to resume. A world can be halfway throu
 
 ## How A Chunk Becomes A Vector Point
 
-The flow starts before a new world is created. The user must choose an embedding model up front, and VySol checks that at least one eligible provider key exists for that model before the world directory is created. If there is no valid key, the run stops immediately instead of creating a half-started world that can never be embedded.
+The flow starts before a new world is created. The user must choose an embedding model up front, and VySol checks that at least one enabled provider key exists for that model before the world directory is created. If there is no valid key, the run stops immediately instead of creating a half-started world that can never be embedded.
 
 When the preflight passes, the world is created with a stable UUID and a locked embedding profile. That profile stores the provider id, model id, task type, dimensions, and the model's maximum input token budget. The user chooses the model, while the backend fixes the embedding contract details so that every chunk in that world is embedded the same way.
 
@@ -40,7 +40,7 @@ Each remaining chunk becomes one embedding work item. Only `chunk_text` is embed
 
 Before VySol sends a chunk to the provider, it checks the locked max input token budget from the world's embedding profile. That check is currently a fast local estimate rather than Google's exact token-counting API. VySol estimates tokens as roughly one token per four characters of `chunk_text`, compares that estimate to the locked `max_input_tokens`, and blocks the request locally with `EMBEDDING_CHUNK_TOO_LARGE` if the estimated chunk size is already over the model's ceiling. This is a fast preflight designed to stop obviously oversized chunks before a provider call, not a claim that the local estimate is a byte-perfect tokenization match for every possible text shape.
 
-If the chunk fits that preflight, VySol sends one text per request, but it can run multiple single-chunk requests concurrently across the book.
+If the chunk fits that preflight, VySol sends one text per request, but it can run multiple single-chunk requests concurrently across the book. Provider keys are selected through the shared [Provider Key Scheduler](provider-key-scheduler.md), so embeddings use the same enabled-key, failover, and cooldown behavior that future AI workflows will use.
 
 The provider call returns a vector, and that vector is written into Qdrant under a stable point id derived from the world UUID, book number, and chunk number. The point id does not include the text hash, which means the same logical chunk slot is overwritten when the text changes instead of creating a second logical copy.
 

@@ -10,8 +10,9 @@ from google.genai.errors import APIError
 
 from backend.embeddings.catalog import get_supported_embedding_model
 from backend.embeddings.errors import EmbeddingProviderError
-from backend.embeddings.models import EmbeddingFailure, EmbeddingProfile, EmbeddingSuccess, EmbeddingWorkItem, ProviderCredential
+from backend.embeddings.models import EmbeddingFailure, EmbeddingProfile, EmbeddingSuccess, EmbeddingWorkItem
 from backend.logger import get_logger
+from backend.provider_keys.models import ProviderCredential
 
 logger = get_logger(__name__)
 

@@ -313,6 +313,43 @@ class EmbeddingIngestionTests(unittest.TestCase):
         self.assertEqual(result.books, [])
         self.assertFalse((self.worlds_root / "No Keys World").exists())
 
+    def test_disabled_keys_block_before_chunk_ingestion_begins(self) -> None:
+        source_path = self._write_source("disabled-key.txt", "Alpha beta gamma delta epsilon zeta.")
+        disabled_keys_root = self.temp_dir / "user" / "disabled-keys"
+        provider_dir = disabled_keys_root / "google-ai-studio"
+        provider_dir.mkdir(parents=True, exist_ok=True)
+        provider_dir.joinpath("primary.json").write_text(
+            json.dumps(
+                {
+                    "name": "Disabled Google Project",
+                    "api_key": "fake-api-key",
+                    "project_id": "project-one",
+                    "allowed_models": ["google/gemini-embedding-2-preview"],
+                    "enabled": False,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        result = ingest_sources(
+            world_name="Disabled Keys World",
+            source_files=[source_path],
+            chunk_size=12,
+            max_lookback=5,
+            overlap_size=2,
+            worlds_root=self.worlds_root,
+            embedding_profile=self._embedding_profile(),
+            provider_keys_root=disabled_keys_root,
+            vector_store_root=self.vector_root,
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual(result.errors[0].code, "EMBEDDING_PROVIDER_KEYS_MISSING")
+        self.assertEqual(result.books, [])
+        self.assertFalse((self.worlds_root / "Disabled Keys World").exists())
+
     def _run_with_provider(
         self,
         *,
