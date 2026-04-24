@@ -14,7 +14,7 @@
 - Shared provider key scheduler with optional `enabled` flags and a dedicated concept page for future UI-controlled key disabling.
 - Internal documentation pages for World Storage, Vector Storage And Chunk Embeddings, and Qdrant Vector Store.
 - Backend chunk retrieval with Qdrant similarity search, query embeddings, cleaned model context, and stale or missing chunk repair warnings.
-- Retrieval documentation under Features and separate Architecture child pages for the C4 container view and system flow view.
+- Retrieval documentation under Features and a single Architecture system flow page.
 
 ### Changed
 
