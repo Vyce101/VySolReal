@@ -266,6 +266,31 @@ class EmbeddingFailure:
     billable_token_estimate: int = 0
 
 
+@dataclass(slots=True)
+class QueryEmbeddingSuccess:
+    """Provider-produced embedding payload for one retrieval query."""
+
+    credential_name: str
+    quota_scope: str
+    vector: list[float]
+    billable_character_count: int | None = None
+
+
+@dataclass(slots=True)
+class QueryEmbeddingFailure:
+    """Provider failure for one retrieval query embedding request."""
+
+    credential_name: str
+    quota_scope: str
+    code: str
+    message: str
+    retryable: bool
+    rate_limit_type: str | None = None
+    rate_limit_scope: str = "model"
+    retry_after_seconds: int | None = None
+    billable_token_estimate: int = 0
+
+
 class EmbeddingRunCancellation:
     """Thread-safe cancellation handle for one embedding run."""
 

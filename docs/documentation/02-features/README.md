@@ -6,3 +6,4 @@
 - [World Storage](world-storage.md)
 - [Vector Storage And Chunk Embeddings](vector-storage-and-chunk-embeddings.md)
 - [Qdrant Vector Store](qdrant-vector-store.md)
+- [Retrieval](retrieval/README.md)

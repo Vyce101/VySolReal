@@ -7,7 +7,15 @@ from typing import Protocol
 from backend.models.google_ai_studio.gemini_embedding_2_preview import GoogleAIStudioEmbeddingProvider
 
 from .errors import EmbeddingConfigurationError
-from .models import EmbeddingFailure, EmbeddingProfile, EmbeddingSuccess, EmbeddingWorkItem, ProviderCredential
+from .models import (
+    EmbeddingFailure,
+    EmbeddingProfile,
+    EmbeddingSuccess,
+    EmbeddingWorkItem,
+    ProviderCredential,
+    QueryEmbeddingFailure,
+    QueryEmbeddingSuccess,
+)
 
 
 class EmbeddingProviderAdapter(Protocol):
@@ -21,6 +29,15 @@ class EmbeddingProviderAdapter(Protocol):
         work_item: EmbeddingWorkItem,
     ) -> EmbeddingSuccess | EmbeddingFailure:
         """Embed one chunk of text."""
+
+    def embed_query(
+        self,
+        *,
+        credential: ProviderCredential,
+        profile: EmbeddingProfile,
+        query: str,
+    ) -> QueryEmbeddingSuccess | QueryEmbeddingFailure:
+        """Embed one retrieval query."""
 
 
 _PROVIDER_FACTORIES = {

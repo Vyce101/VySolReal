@@ -13,6 +13,8 @@
 - Shared local Qdrant vector storage with per-book embedding manifests and resumable vector reconciliation.
 - Shared provider key scheduler with optional `enabled` flags and a dedicated concept page for future UI-controlled key disabling.
 - Internal documentation pages for World Storage, Vector Storage And Chunk Embeddings, and Qdrant Vector Store.
+- Backend chunk retrieval with Qdrant similarity search, query embeddings, cleaned model context, and stale or missing chunk repair warnings.
+- Retrieval documentation under Features and separate Architecture child pages for the C4 container view and system flow view.
 
 ### Changed
 
@@ -24,6 +26,7 @@
 - New-world ingestion now requires an explicit embedding model and eligible provider keys before world creation begins.
 - Qdrant chunk vectors now use embedding-profile-specific collections so worlds with different embedding dimensions can coexist in one local vector store.
 - The architecture page now reflects the chunk-to-vector pipeline with container-level storage boundaries.
+- Google AI Studio embedding requests now share provider-level request, logging, and error-normalization code across chunk and query embeddings.
 
 ### Removed
 

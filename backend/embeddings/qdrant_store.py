@@ -109,6 +109,57 @@ class QdrantChunkStore:
             ) from exc
         return {str(record.id): record for record in records}
 
+    def query_similar_chunks(
+        self,
+        *,
+        query_vector: list[float],
+        world_uuid: str,
+        limit: int,
+        score_threshold: float,
+    ) -> list[models.ScoredPoint]:
+        """Search this profile collection for one world's nearest chunk vectors."""
+        if limit <= 0:
+            return []
+        collection_name = self._active_collection_name()
+        try:
+            logger.info(
+                "Querying Qdrant chunk vectors for collection=%s world_uuid=%s limit=%s score_threshold=%s.",
+                collection_name,
+                world_uuid,
+                limit,
+                score_threshold,
+            )
+            response = self._client.query_points(
+                collection_name=collection_name,
+                query=query_vector,
+                query_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="world_uuid",
+                            match=models.MatchValue(value=world_uuid),
+                        )
+                    ]
+                ),
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+                score_threshold=score_threshold,
+            )
+        except Exception as exc:
+            logger.error(
+                "Qdrant similarity query failed for collection=%s world_uuid=%s limit=%s reason=%s.",
+                collection_name,
+                world_uuid,
+                limit,
+                str(exc),
+            )
+            raise VectorStoreError(
+                code="VECTOR_STORE_QUERY_FAILED",
+                message="The local Qdrant store could not query chunk embeddings.",
+                details={"world_uuid": world_uuid, "reason": str(exc)},
+            ) from exc
+        return list(response.points)
+
     def upsert_chunk_embedding(
         self,
         *,
