@@ -1,6 +1,6 @@
 export type SettingValue = string | number | boolean;
 
-export type ModelSurface = "chat" | "embedding" | "extraction";
+export type ModelSurface = "chat" | "embedding";
 
 export type SettingValueType = "number" | "boolean" | "enum" | "string";
 
@@ -28,6 +28,7 @@ export interface SettingDefinition {
 
 export interface ModelSettingConfig {
   settingId: string;
+  limitKey?: keyof ModelLimitSet;
   defaultValue?: SettingValue;
   min?: number;
   max?: number;
@@ -72,6 +73,7 @@ export interface ProviderDefinition {
   id: string;
   displayName: string;
   apiKeyFilePath: string;
+  settings?: Record<string, SettingDefinition>;
   models: readonly ModelDefinition[];
 }
 
@@ -79,5 +81,6 @@ export interface RegisteredModel {
   providerId: string;
   providerDisplayName: string;
   apiKeyFilePath: string;
+  providerSettings?: Record<string, SettingDefinition>;
   model: ModelDefinition;
 }

@@ -98,7 +98,3 @@ export const googleSettingCatalog: Record<string, SettingDefinition> = {
     defaultValue: "",
   },
 };
-
-export function getGoogleSettingDefinition(settingId: string): SettingDefinition | undefined {
-  return googleSettingCatalog[settingId];
-}

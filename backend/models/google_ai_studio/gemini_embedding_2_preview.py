@@ -12,6 +12,7 @@ from backend.embeddings.catalog import get_supported_embedding_model
 from backend.embeddings.errors import EmbeddingProviderError
 from backend.embeddings.models import EmbeddingFailure, EmbeddingProfile, EmbeddingSuccess, EmbeddingWorkItem
 from backend.logger import get_logger
+from backend.models.google_ai_studio.errors import parse_google_ai_studio_api_error
 from backend.provider_keys.models import ProviderCredential
 
 logger = get_logger(__name__)
@@ -144,35 +145,19 @@ def _failure_from_api_error(
     work_item: EmbeddingWorkItem,
     error: APIError,
 ) -> EmbeddingFailure:
-    # BLOCK 1: Translate provider HTTP errors into retryable chunk-level failures with model-local rate-limit metadata when it is available
-    # WHY: The scheduler should cool down only this key/model for ordinary Google 429s, while unknown 429 wording still needs a safe temporary fallback instead of becoming a tight retry loop
-    retry_after_value = None
-    rate_limit_type = None
-    headers = getattr(error.response, "headers", {}) if error.response is not None else {}
-    retry_after_header = headers.get("retry-after") or headers.get("Retry-After")
-    if retry_after_header:
-        try:
-            retry_after_value = int(float(retry_after_header))
-        except ValueError:
-            retry_after_value = None
-    message = error.message or str(error)
-    if error.code == 429:
-        upper_message = message.upper()
-        if "REQUESTS_PER_DAY" in upper_message or "PER DAY" in upper_message or "RPD" in upper_message:
-            rate_limit_type = "rpd"
-        elif "TOKENS_PER_MINUTE" in upper_message or "TPM" in upper_message:
-            rate_limit_type = "tpm"
-        else:
-            rate_limit_type = "rpm"
+    # BLOCK 1: Convert the shared Google provider error shape into the embedding workflow failure contract
+    # WHY: Google rate-limit parsing is provider-wide behavior, while chunk retry state and manifest updates belong to the embedding workflow
+    error_info = parse_google_ai_studio_api_error(error)
     return EmbeddingFailure(
         work_item=work_item,
         credential_name=credential.display_name,
         quota_scope=credential.quota_scope,
-        code=f"EMBEDDING_PROVIDER_{error.code}",
-        message=message,
-        retryable=error.code >= 500 or error.code == 429,
-        rate_limit_type=rate_limit_type,
-        retry_after_seconds=retry_after_value,
+        code=f"EMBEDDING_PROVIDER_{error_info.status_code}" if error_info.status_code is not None else "EMBEDDING_PROVIDER_UNKNOWN",
+        message=error_info.message,
+        retryable=error_info.retryable,
+        rate_limit_type=error_info.rate_limit_type,
+        rate_limit_scope=error_info.rate_limit_scope,
+        retry_after_seconds=error_info.retry_after_seconds,
         billable_token_estimate=_estimate_tokens(work_item.chunk_text),
     )
 

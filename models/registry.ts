@@ -1,6 +1,5 @@
 import { getSettingDefinition } from "./settings";
 import { providers } from "./providers";
-import { getGoogleSettingDefinition } from "./providers/google-ai-studio/data/settings";
 import type {
   ModelDefinition,
   ModelSurface,
@@ -9,23 +8,12 @@ import type {
   SettingDefinition,
 } from "./types";
 
-function getProviderSettingDefinition(
-  providerId: string,
-  settingId: string,
-): SettingDefinition | undefined {
-  switch (providerId) {
-    case "google":
-      return getGoogleSettingDefinition(settingId);
-    default:
-      return undefined;
-  }
-}
-
 function registerModels(provider: ProviderDefinition): RegisteredModel[] {
   return provider.models.map((model) => ({
     providerId: provider.id,
     providerDisplayName: provider.displayName,
     apiKeyFilePath: provider.apiKeyFilePath,
+    providerSettings: provider.settings,
     model,
   }));
 }
@@ -59,21 +47,22 @@ export function getModel(modelId: string): ModelDefinition | undefined {
 function applyModelLimitOverrides(
   setting: SettingDefinition,
   model: ModelDefinition,
+  limitKey?: keyof ModelDefinition["limits"],
 ): SettingDefinition {
-  if (setting.id !== "maxInputTokens") {
+  if (!limitKey) {
     return setting;
   }
 
-  const maxInputTokens = model.limits.maxInputTokens;
+  const limitValue = model.limits[limitKey];
 
-  if (maxInputTokens === undefined) {
+  if (limitValue === undefined) {
     return setting;
   }
 
   return {
     ...setting,
-    defaultValue: maxInputTokens,
-    max: maxInputTokens,
+    defaultValue: limitValue,
+    max: limitValue,
   };
 }
 
@@ -85,9 +74,10 @@ export function resolveModelSettings(modelId: string): SettingDefinition[] {
   }
 
   return registeredModel.model.settings.flatMap((settingConfig) => {
+    const { limitKey, ...settingOverrides } = settingConfig;
     const baseSetting =
-      getSettingDefinition(settingConfig.settingId) ??
-      getProviderSettingDefinition(registeredModel.providerId, settingConfig.settingId);
+      getSettingDefinition(settingOverrides.settingId) ??
+      registeredModel.providerSettings?.[settingOverrides.settingId];
 
     if (!baseSetting) {
       return [];
@@ -97,10 +87,11 @@ export function resolveModelSettings(modelId: string): SettingDefinition[] {
       applyModelLimitOverrides(
         {
           ...baseSetting,
-          ...settingConfig,
+          ...settingOverrides,
           id: baseSetting.id,
         },
         registeredModel.model,
+        limitKey,
       ),
     ];
   });
