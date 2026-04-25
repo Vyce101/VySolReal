@@ -110,13 +110,5 @@
       { "value": "QUESTION_ANSWERING", "label": "Question Answering" },
       { "value": "FACT_VERIFICATION", "label": "Fact Verification" }
     ]
-  },
-  "embeddingTitle": {
-    "id": "embeddingTitle",
-    "displayName": "Embedding Title",
-    "description": "Optional title to improve retrieval quality for RETRIEVAL_DOCUMENT embedding tasks.",
-    "valueType": "string",
-    "control": "input",
-    "defaultValue": ""
   }
 }

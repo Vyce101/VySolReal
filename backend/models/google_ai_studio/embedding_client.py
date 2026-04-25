@@ -31,7 +31,6 @@ class GoogleEmbeddingRequest:
     empty_error_code: str
     empty_error_message: str
     log_context: dict[str, object]
-    title: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -81,7 +80,6 @@ def embed_content(request: GoogleEmbeddingRequest) -> GoogleEmbeddingResponse | 
             config=types.EmbedContentConfig(
                 task_type=request.task_type,
                 output_dimensionality=request.profile.dimensions,
-                title=request.title,
             ),
         )
     except APIError as error:

@@ -18,7 +18,6 @@
       "limitKey": "maxEmbeddingDimensions",
       "min": 128,
       "step": 128
-    },
-    { "settingId": "embeddingTitle" }
+    }
   ]
 }

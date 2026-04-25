@@ -67,7 +67,6 @@ def lock_profile_to_model_maxima(profile: EmbeddingProfile) -> EmbeddingProfile:
         dimensions=supported_model.max_dimensions,
         task_type=profile.task_type,
         profile_version=profile.profile_version,
-        title=profile.title,
         extra_settings=normalized_settings,
     )
 

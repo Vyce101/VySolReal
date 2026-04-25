@@ -27,7 +27,9 @@
 - Qdrant chunk vectors now use embedding-profile-specific collections so worlds with different embedding dimensions can coexist in one local vector store.
 - The architecture page now reflects the chunk-to-vector pipeline with container-level storage boundaries.
 - Google AI Studio embedding requests now share provider-level request, logging, and error-normalization code across chunk and query embeddings.
+- Google AI Studio max-input enforcement now uses exact provider token counting and blocks when counting fails instead of using the old local estimate.
 
 ### Removed
 
 - Legacy docs files `docs/FEATURES.md` and `docs/ARCHITECTURE.md`.
+- Google AI Studio embedding title metadata from the active embedding model settings and backend request path.

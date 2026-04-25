@@ -18,7 +18,6 @@ class EmbeddingProfile:
     dimensions: int
     task_type: str
     profile_version: int
-    title: str | None = None
     extra_settings: dict[str, object] = field(default_factory=dict)
 
     @property
@@ -38,7 +37,6 @@ class EmbeddingProfile:
             "dimensions": self.dimensions,
             "task_type": self.task_type,
             "profile_version": self.profile_version,
-            "title": self.title,
             "extra_settings": dict(self.extra_settings),
         }
 
@@ -50,7 +48,6 @@ class EmbeddingProfile:
             dimensions=int(payload["dimensions"]),
             task_type=str(payload["task_type"]),
             profile_version=int(payload["profile_version"]),
-            title=str(payload["title"]) if payload.get("title") is not None else None,
             extra_settings=dict(payload.get("extra_settings", {})),
         )
 
