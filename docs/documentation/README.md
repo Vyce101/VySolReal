@@ -8,7 +8,7 @@ VySol is for people who want believable roleplay inside established fictional se
 
 | Main Workspace |
 | --- |
-| [![Main workspace](https://raw.githubusercontent.com/Vyce101/VySolReal/main/docs/assets/social.png)](https://raw.githubusercontent.com/Vyce101/VySolReal/main/docs/assets/social.png) |
+| [![Main workspace](https://raw.githubusercontent.com/Vyce101/VySolReal/main/docs/assets/worlds-hub.png)](https://raw.githubusercontent.com/Vyce101/VySolReal/main/docs/assets/worlds-hub.png) |
 
 ## Installation Requirements
 

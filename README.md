@@ -3,7 +3,7 @@
 Local-first graph RAG app for roleplaying in pre-existing fictional worlds with grounded, inspectable lore context.
 
 <p align="center">
-  <img src="docs/assets/social.png" alt="VySol preview" width="960">
+  <img src="docs/assets/worlds-hub.png" alt="VySol Worlds Hub" width="960">
 </p>
 
 ![Python](https://img.shields.io/badge/python-3.14.3-3776AB)
