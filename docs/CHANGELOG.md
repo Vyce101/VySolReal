@@ -15,6 +15,9 @@
 - Internal documentation pages for World Storage, Vector Storage And Chunk Embeddings, and Qdrant Vector Store.
 - Backend chunk retrieval with Qdrant similarity search, query embeddings, cleaned model context, and stale or missing chunk repair warnings.
 - Retrieval documentation under Features and a single Architecture system flow page.
+- Resumable knowledge graph extraction and graph manifestation backend modules with saved manifests, provider calls, parser/prompt handling, and Neo4j graph writes.
+- Graph node vectors in Qdrant, portable local Neo4j bootstrap support, and pinned `neo4j==6.1.0` backend dependency.
+- Focused backend tests for graph extraction, graph manifestation, node vectors, and the expanded ingestion run-boundary cases.
 
 ### Changed
 
@@ -28,6 +31,13 @@
 - The architecture page now reflects the chunk-to-vector pipeline with container-level storage boundaries.
 - Google AI Studio embedding requests now share provider-level request, logging, and error-normalization code across chunk and query embeddings.
 - Google AI Studio max-input enforcement now uses exact provider token counting and blocks when counting fails instead of using the old local estimate.
+- World ingestion now keeps a world-level splitter lock, reuses paused ingestion runs, carries `ingestion_run_id` through embedding manifests and vector payloads, and appends new books without reusing old book slots.
+- Feature documentation is now grouped into `World Ingestion Pipeline`, `Storage Layers`, `Shared Backend Systems`, and `Retrieval`, with new pages for the graph pipeline and manifestation flow.
+- The system flow diagram now shows the current graph extraction and manifestation path, shared provider-key scheduling, Neo4j storage, and a separate legend above the main diagram.
+
+### Fixed
+
+- Graph manifestation now retries Neo4j edge batch failures, rebuilds surviving chunk candidates after chunk-level cleanup, and logs boundary-stage progress without raw model output.
 
 ### Removed
 
