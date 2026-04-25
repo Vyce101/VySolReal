@@ -1,4 +1,6 @@
 google-genai==1.72.0
+fastapi==0.135.4
+uvicorn==0.42.0
 PyMuPDF==1.27.2.2
 EbookLib==0.20
 qdrant-client==1.17.1
