@@ -18,6 +18,7 @@
 - Resumable knowledge graph extraction and graph manifestation backend modules with saved manifests, provider calls, parser/prompt handling, and Neo4j graph writes.
 - Graph node vectors in Qdrant, portable local Neo4j bootstrap support, and pinned `neo4j==6.1.0` backend dependency.
 - Focused backend tests for graph extraction, graph manifestation, node vectors, and the expanded ingestion run-boundary cases.
+- Local Worlds Hub app shell with a FastAPI API, React/Vite frontend, app-owned Hub assets, and local world asset serving.
 
 ### Changed
 
@@ -34,6 +35,8 @@
 - World ingestion now keeps a world-level splitter lock, reuses paused ingestion runs, carries `ingestion_run_id` through embedding manifests and vector payloads, and appends new books without reusing old book slots.
 - Feature documentation is now grouped into `World Ingestion Pipeline`, `Storage Layers`, `Shared Backend Systems`, and `Retrieval`, with new pages for the graph pipeline and manifestation flow.
 - The system flow diagram now shows the current graph extraction and manifestation path, shared provider-key scheduling, Neo4j storage, and a separate legend above the main diagram.
+- `run.bat` now starts the backend and frontend together, checks Python and Node.js versions, installs pinned local dependencies, and prints clearer setup guidance for developers.
+- Quickstart and preview imagery now reflect the Worlds Hub startup flow.
 
 ### Fixed
 
