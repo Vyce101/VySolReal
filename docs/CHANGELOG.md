@@ -26,7 +26,6 @@
 - New-world ingestion now requires an explicit embedding model and eligible provider keys before world creation begins.
 - Qdrant chunk vectors now use embedding-profile-specific collections so worlds with different embedding dimensions can coexist in one local vector store.
 - The architecture page now reflects the chunk-to-vector pipeline with container-level storage boundaries.
-- The system flow diagram now includes the current graph extraction and manifestation flow, shared provider-key scheduling, Neo4j storage, and a separate legend above the main diagram.
 - Google AI Studio embedding requests now share provider-level request, logging, and error-normalization code across chunk and query embeddings.
 - Google AI Studio max-input enforcement now uses exact provider token counting and blocks when counting fails instead of using the old local estimate.
 
