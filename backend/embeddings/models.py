@@ -52,6 +52,26 @@ class EmbeddingProfile:
         )
 
 
+@dataclass(slots=True, frozen=True)
+class WorldSplitterConfig:
+    """Locked splitter contract stored at the world level."""
+
+    chunk_size: int
+    max_lookback: int
+    overlap_size: int
+
+    def to_dict(self) -> dict[str, int]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "WorldSplitterConfig":
+        return cls(
+            chunk_size=int(payload["chunk_size"]),
+            max_lookback=int(payload["max_lookback"]),
+            overlap_size=int(payload["overlap_size"]),
+        )
+
+
 @dataclass(slots=True)
 class WorldMetadata:
     """Stored world identity and embedding contract."""
@@ -60,14 +80,24 @@ class WorldMetadata:
     world_uuid: str
     world_name: str
     embedding_profile: EmbeddingProfile
+    splitter_config: WorldSplitterConfig | None = None
+    active_ingestion_run_id: str | None = None
+    active_ingestion_run_status: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "world_id": self.world_id,
             "world_uuid": self.world_uuid,
             "world_name": self.world_name,
             "embedding_profile": self.embedding_profile.to_dict(),
         }
+        if self.splitter_config is not None:
+            payload["splitter_config"] = self.splitter_config.to_dict()
+        if self.active_ingestion_run_id is not None:
+            payload["active_ingestion_run_id"] = self.active_ingestion_run_id
+        if self.active_ingestion_run_status is not None:
+            payload["active_ingestion_run_status"] = self.active_ingestion_run_status
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "WorldMetadata":
@@ -76,6 +106,9 @@ class WorldMetadata:
             world_uuid=str(payload["world_uuid"]),
             world_name=str(payload["world_name"]),
             embedding_profile=EmbeddingProfile.from_dict(dict(payload["embedding_profile"])),
+            splitter_config=WorldSplitterConfig.from_dict(dict(payload["splitter_config"])) if payload.get("splitter_config") is not None else None,
+            active_ingestion_run_id=str(payload["active_ingestion_run_id"]) if payload.get("active_ingestion_run_id") is not None else None,
+            active_ingestion_run_status=str(payload["active_ingestion_run_status"]) if payload.get("active_ingestion_run_status") is not None else None,
         )
 
 
@@ -116,6 +149,7 @@ class EmbeddingManifest:
 
     world_id: str
     world_uuid: str
+    ingestion_run_id: str
     source_filename: str
     book_number: int
     total_chunks: int
@@ -127,6 +161,7 @@ class EmbeddingManifest:
         return {
             "world_id": self.world_id,
             "world_uuid": self.world_uuid,
+            "ingestion_run_id": self.ingestion_run_id,
             "source_filename": self.source_filename,
             "book_number": self.book_number,
             "total_chunks": self.total_chunks,
@@ -141,6 +176,7 @@ class EmbeddingManifest:
         *,
         world_id: str,
         world_uuid: str,
+        ingestion_run_id: str,
         source_filename: str,
         book_number: int,
         total_chunks: int,
@@ -150,6 +186,7 @@ class EmbeddingManifest:
         return cls(
             world_id=world_id,
             world_uuid=world_uuid,
+            ingestion_run_id=ingestion_run_id,
             source_filename=source_filename,
             book_number=book_number,
             total_chunks=total_chunks,
@@ -168,6 +205,7 @@ class EmbeddingManifest:
         return cls(
             world_id=str(payload["world_id"]),
             world_uuid=str(payload["world_uuid"]),
+            ingestion_run_id=str(payload.get("ingestion_run_id", "")),
             source_filename=str(payload["source_filename"]),
             book_number=int(payload["book_number"]),
             total_chunks=int(payload["total_chunks"]),

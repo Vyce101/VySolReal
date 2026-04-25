@@ -44,7 +44,7 @@ def load_provider_credentials(
     )
     credentials: list[ProviderCredential] = []
     for credential_path in credential_files:
-        payload = json.loads(credential_path.read_text(encoding="utf-8"))
+        payload = json.loads(credential_path.read_text(encoding="utf-8-sig"))
         enabled = _enabled_from_payload(payload=payload, credential_path=credential_path)
         if not enabled:
             logger.info(

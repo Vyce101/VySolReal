@@ -77,19 +77,22 @@ def embed_book_chunks(
             provider_keys_root=resolved_keys_root,
         )
 
-        # BLOCK 2: Load or create the per-book embedding manifest, then reconcile it against the current chunk files and Qdrant truth
-        # VARS: manifest_path = stable per-book embedding manifest file, manifest = mutable per-book embedding state used for resume and reconciliation
-        # WHY: Embedding progress must be tracked independently from chunk persistence so vector writes can fail or resume without corrupting chunk state
+        # BLOCK 2: Load or create the per-book embedding manifest for the active world run, then reconcile it against the current chunk files and Qdrant truth
+        # VARS: manifest_path = stable per-book embedding manifest file, manifest = mutable per-book embedding state used for resume and reconciliation, ingestion_run_id = durable world-level run boundary shared by the unfinished ingest
+        # WHY: Embedding progress must be tracked independently from chunk persistence, but it still has to snapshot the active ingestion run so stale saved state can be reset before resume trusts it
         manifest_path = embedding_manifest_file_path(book_dir)
+        ingestion_run_id = world.active_ingestion_run_id or ""
         manifest = _load_or_create_manifest(
             manifest_path=manifest_path,
             world=world,
+            ingestion_run_id=ingestion_run_id,
             book_number=book_number,
             source_filename=source_filename,
             chunk_paths=chunk_paths,
         )
         _reconcile_manifest_with_qdrant(
             manifest=manifest,
+            ingestion_run_id=ingestion_run_id,
             chunk_paths=chunk_paths,
             store=store,
         )
@@ -152,30 +155,47 @@ def _load_or_create_manifest(
     *,
     manifest_path: Path,
     world: WorldMetadata,
+    ingestion_run_id: str,
     book_number: int,
     source_filename: str,
     chunk_paths: list[str],
 ) -> EmbeddingManifest:
-    # BLOCK 1: Reuse an existing embedding manifest when it matches the locked world profile, otherwise build a fresh manifest for every chunk slot in the book
-    # WHY: Embedding resume depends on stable point ids and per-chunk states, so a fresh manifest must be created deterministically when one does not already exist
+    # BLOCK 1: Build the fresh manifest shape for this book and ingestion run before deciding whether any saved state can be reused
+    # VARS: point_ids = stable chunk-slot ids that stay fixed across retries, fresh_manifest = brand-new run snapshot used when saved state is missing or stale
+    # WHY: Comparing old state against one authoritative manifest shape keeps run resets deterministic instead of editing older manifests piecemeal
     existing_manifest = load_embedding_manifest(manifest_path)
     point_ids = [_chunk_point_id(world_uuid=world.world_uuid, book_number=book_number, chunk_number=index) for index in range(1, len(chunk_paths) + 1)]
+    fresh_manifest = EmbeddingManifest.create(
+        world_id=world.world_id,
+        world_uuid=world.world_uuid,
+        ingestion_run_id=ingestion_run_id,
+        source_filename=source_filename,
+        book_number=book_number,
+        total_chunks=len(chunk_paths),
+        profile=world.embedding_profile,
+        point_ids=point_ids,
+    )
     if existing_manifest is None:
-        return EmbeddingManifest.create(
-            world_id=world.world_id,
-            world_uuid=world.world_uuid,
-            source_filename=source_filename,
-            book_number=book_number,
-            total_chunks=len(chunk_paths),
-            profile=world.embedding_profile,
-            point_ids=point_ids,
-        )
+        return fresh_manifest
     if existing_manifest.profile != world.embedding_profile:
         raise EmbeddingConfigurationError(
             code="WORLD_EMBEDDING_PROFILE_LOCKED",
             message="The world already has a locked embedding profile that does not match this request.",
             details={"book_number": book_number, "source_filename": source_filename},
         )
+    # BLOCK 2: Reset saved embedding progress when it belongs to an older or missing ingestion run boundary
+    # WHY: The active ingest run is the provenance boundary for later pipeline stages, so a stale manifest must be redone instead of being treated as trustworthy current progress
+    if existing_manifest.ingestion_run_id != ingestion_run_id:
+        fresh_manifest.append_warning(
+            {
+                "code": "EMBEDDING_RUN_STATE_RESET",
+                "message": "The embedding manifest belonged to a different ingestion run, so embeddings for this book were reset.",
+                "severity": "warning",
+                "book_number": book_number,
+                "source_filename": source_filename,
+            }
+        )
+        return fresh_manifest
     if existing_manifest.total_chunks != len(chunk_paths):
         raise EmbeddingConfigurationError(
             code="EMBEDDING_MANIFEST_CONFLICT",
@@ -188,12 +208,13 @@ def _load_or_create_manifest(
 def _reconcile_manifest_with_qdrant(
     *,
     manifest: EmbeddingManifest,
+    ingestion_run_id: str,
     chunk_paths: list[str],
     store: QdrantChunkStore,
 ) -> None:
-    # BLOCK 1: Compare the manifest and current chunk files to Qdrant truth so stale hashes and missing points are repaired before any new provider calls start
-    # VARS: existing_points = live Qdrant records keyed by stable point id, stale_point_ids = vectors that no longer match the current chunk text and must be deleted before overwrite
-    # WHY: Resume must trust only fully confirmed per-chunk completion, which means both the manifest and Qdrant have to agree with the current chunk text hash
+    # BLOCK 1: Compare the manifest and current chunk files to Qdrant truth so stale hashes, stale run ids, and missing points are repaired before any new provider calls start
+    # VARS: existing_points = live Qdrant records keyed by stable point id, stale_point_ids = vectors that no longer match the current chunk text or active run boundary and must be deleted before overwrite
+    # WHY: Resume must trust only fully confirmed per-chunk completion, which means both the manifest and Qdrant have to agree with the current chunk text hash and ingestion run id
     existing_points = store.retrieve_existing_points([state.point_id for state in manifest.chunk_states])
     stale_point_ids: list[str] = []
     for state, chunk_path in zip(manifest.chunk_states, chunk_paths, strict=True):
@@ -208,7 +229,8 @@ def _reconcile_manifest_with_qdrant(
 
         if current_point is not None:
             payload_hash = current_point.payload.get("text_hash") if current_point.payload is not None else None
-            if payload_hash == current_hash:
+            payload_run_id = current_point.payload.get("ingestion_run_id") if current_point.payload is not None else None
+            if payload_hash == current_hash and payload_run_id == ingestion_run_id:
                 if state.status != "embedded" or state.text_hash != current_hash:
                     logger.info(
                         "Embedding manifest reconciled to confirmed Qdrant point for world_uuid=%s book=%s chunk=%s point_id=%s.",
@@ -223,8 +245,9 @@ def _reconcile_manifest_with_qdrant(
                 state.last_error_message = None
                 continue
             logger.warning(
-                "Stale Qdrant point detected for world_uuid=%s book=%s chunk=%s point_id=%s; deleting before overwrite.",
+                "Stale Qdrant point detected for world_uuid=%s run=%s book=%s chunk=%s point_id=%s; deleting before overwrite.",
                 manifest.world_uuid,
+                ingestion_run_id,
                 manifest.book_number,
                 state.chunk_number,
                 state.point_id,
@@ -314,6 +337,13 @@ def _run_embedding_loop(
                     manifest.book_number,
                     len(futures),
                 )
+                for pending_future, (pending_work_item, pending_credential) in list(futures.items()):
+                    scheduler.abandon_inflight(
+                        scope_key=pending_credential.quota_scope,
+                        token_estimate=_estimate_tokens(pending_work_item.chunk_text),
+                    )
+                    pending_future.cancel()
+                futures.clear()
                 break
 
             if not futures:
@@ -338,6 +368,10 @@ def _run_embedding_loop(
                         work_item.book_number,
                         work_item.chunk_number,
                         credential.display_name,
+                    )
+                    scheduler.abandon_inflight(
+                        scope_key=credential.quota_scope,
+                        token_estimate=_estimate_tokens(work_item.chunk_text),
                     )
                     continue
                 if isinstance(outcome, EmbeddingSuccess):
@@ -405,6 +439,7 @@ def _persist_embedding_success(
     state = manifest.chunk_states[success.work_item.chunk_number - 1]
     store.upsert_chunk_embedding(
         world=world,
+        ingestion_run_id=manifest.ingestion_run_id,
         work_item=success.work_item,
         vector=success.vector,
         profile=world.embedding_profile,
@@ -437,12 +472,13 @@ def _handle_embedding_failure(
     scheduler: ProviderKeyScheduler,
     warnings: list[OperationEvent],
 ) -> None:
-    # BLOCK 1: Update chunk retry state, runtime cooldown state, and user-visible warnings from one failed provider request
-    # WHY: Provider failures affect both the specific chunk and the future availability of that credential, so those two pieces of state must be updated together
+    # BLOCK 1: Update runtime cooldown state and only spend chunk retries for non-quota provider failures
+    # WHY: Rate limits are key availability problems that should fail over to another credential, while timeouts and provider crashes are ordinary chunk attempts that can exhaust the three-try budget
     state = manifest.chunk_states[work_item.chunk_number - 1]
-    state.retry_count += 1
     state.last_error_code = failure.code
     state.last_error_message = failure.message
+    if failure.rate_limit_type is None:
+        state.retry_count += 1
     logger.warning(
         "Embedding request failed for world_uuid=%s book=%s chunk=%s credential=%s code=%s retryable=%s retry_count=%s.",
         manifest.world_uuid,

@@ -72,6 +72,25 @@ class ProviderKeyTests(unittest.TestCase):
 
         self.assertEqual(credentials, [])
 
+    def test_key_files_with_utf8_bom_are_supported(self) -> None:
+        self.provider_dir.joinpath("primary.json").write_text(
+            "\ufeff"
+            + json.dumps(
+                {
+                    "name": "Primary",
+                    "api_key": "fake-primary",
+                    "allowed_models": ["google/gemini-embedding-2-preview"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        credentials = load_provider_credentials(provider_id="google", provider_keys_root=self.keys_root)
+
+        self.assertEqual([credential.display_name for credential in credentials], ["Primary"])
+
     def test_invalid_enabled_value_fails_clearly(self) -> None:
         self._write_key("primary.json", name="Invalid", enabled="yes")
 
@@ -80,7 +99,29 @@ class ProviderKeyTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "PROVIDER_KEY_INVALID")
 
-    def test_scheduler_uses_first_key_until_cooldown_then_fails_over(self) -> None:
+    def test_scheduler_rotates_after_confirmed_requests(self) -> None:
+        self._write_key("a-primary.json", name="Primary")
+        self._write_key("b-secondary.json", name="Secondary")
+        scheduler = ProviderKeyScheduler.for_model(
+            provider_id="google",
+            model_id="google/gemini-embedding-2-preview",
+            provider_keys_root=self.keys_root,
+        )
+
+        first = scheduler.select_credential(token_estimate=5)
+        scheduler.record_success(scope_key=first.quota_scope, token_estimate=5)
+        second = scheduler.select_credential(token_estimate=5)
+        scheduler.record_success(scope_key=second.quota_scope, token_estimate=5)
+        third = scheduler.select_credential(token_estimate=5)
+        scheduler.record_success(scope_key=third.quota_scope, token_estimate=5)
+        fourth = scheduler.select_credential(token_estimate=5)
+
+        self.assertEqual(first.display_name, "Primary")
+        self.assertEqual(second.display_name, "Secondary")
+        self.assertEqual(third.display_name, "Primary")
+        self.assertEqual(fourth.display_name, "Secondary")
+
+    def test_busy_key_is_skipped_for_free_key(self) -> None:
         self._write_key("a-primary.json", name="Primary")
         self._write_key("b-secondary.json", name="Secondary")
         scheduler = ProviderKeyScheduler.for_model(
@@ -91,8 +132,42 @@ class ProviderKeyTests(unittest.TestCase):
 
         first = scheduler.select_credential(token_estimate=5)
         second = scheduler.select_credential(token_estimate=5)
+        third = scheduler.select_credential(token_estimate=5)
+
         self.assertEqual(first.display_name, "Primary")
-        self.assertEqual(second.display_name, "Primary")
+        self.assertEqual(second.display_name, "Secondary")
+        self.assertIsNone(third)
+
+    def test_embedding_and_extraction_schedulers_share_busy_gate(self) -> None:
+        self._write_key("a-primary.json", name="Primary", allowed_models=[])
+        self._write_key("b-secondary.json", name="Secondary", allowed_models=[])
+        embedding_scheduler = ProviderKeyScheduler.for_model(
+            provider_id="google",
+            model_id="google/gemini-embedding-2-preview",
+            provider_keys_root=self.keys_root,
+        )
+        extraction_scheduler = ProviderKeyScheduler.for_model(
+            provider_id="google",
+            model_id="google/gemma-4-31b-it",
+            provider_keys_root=self.keys_root,
+        )
+
+        embedding_credential = embedding_scheduler.select_credential(token_estimate=5)
+        extraction_credential = extraction_scheduler.select_credential(token_estimate=5)
+
+        self.assertEqual(embedding_credential.display_name, "Primary")
+        self.assertEqual(extraction_credential.display_name, "Secondary")
+
+    def test_scheduler_cools_limited_key_and_fails_over(self) -> None:
+        self._write_key("a-primary.json", name="Primary")
+        self._write_key("b-secondary.json", name="Secondary")
+        scheduler = ProviderKeyScheduler.for_model(
+            provider_id="google",
+            model_id="google/gemini-embedding-2-preview",
+            provider_keys_root=self.keys_root,
+        )
+
+        first = scheduler.select_credential(token_estimate=5)
 
         scheduler.apply_rate_limit_failure(
             credential=first,

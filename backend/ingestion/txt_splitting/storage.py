@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -48,6 +49,38 @@ def copy_source_into_world(
         backup_path,
     )
 
+    # BLOCK 3: Reuse the already stored source when re-ingest or resume points at the world's own primary copy
+    # WHY: Full-world re-ingest rebuilds from stored sources, and copying a file onto itself would fail instead of preserving the trusted in-world copy
+    try:
+        source_resolved = source_path.resolve(strict=False)
+        primary_resolved = primary_path.resolve(strict=False)
+        backup_resolved = backup_path.resolve(strict=False)
+    except OSError:
+        source_resolved = source_path
+        primary_resolved = primary_path
+        backup_resolved = backup_path
+    if source_resolved == primary_resolved:
+        if not backup_path.exists():
+            _copy_binary_file(primary_path, backup_path)
+        return StoredSourcePaths(
+            primary_path=primary_path,
+            backup_path=backup_path,
+            source_filename=source_path.name,
+        )
+
+    # BLOCK 4: Restore the primary copy from the backup when re-ingest has to start from the saved backup file
+    # WHY: The active source session expects the primary slot to stay canonical, even when a previous run had to fall back to backup storage
+    if source_resolved == backup_resolved:
+        if not primary_path.exists():
+            _copy_binary_file(backup_path, primary_path)
+        return StoredSourcePaths(
+            primary_path=primary_path,
+            backup_path=backup_path,
+            source_filename=source_path.name,
+        )
+
+    # BLOCK 5: Copy an external source into both world-owned source slots for a normal new-book ingest
+    # WHY: New sources must still produce both the working copy and the backup copy so later resumes can survive source loss
     _copy_binary_file(source_path, primary_path)
     _copy_binary_file(source_path, backup_path)
 
@@ -145,6 +178,86 @@ def manifest_file_path(book_dir: Path) -> Path:
 def book_directory(world_dir: Path, book_number: int) -> Path:
     """Per-book output directory."""
     return world_dir / "books" / f"book_{book_number:02d}"
+
+
+def stored_source_directory(world_dir: Path, book_number: int) -> Path:
+    """Return the per-book stored source directory."""
+    return world_dir / "source files" / f"book_{book_number:02d}"
+
+
+def stored_backup_directory(world_dir: Path, book_number: int) -> Path:
+    """Return the per-book stored backup directory."""
+    return world_dir / ".backups" / f"book_{book_number:02d}"
+
+
+def existing_book_numbers(world_dir: Path) -> list[int]:
+    """Return every discovered book number under source, backup, or derived output folders."""
+    # BLOCK 1: Scan all known per-book folder roots so append numbering cannot reuse an occupied slot
+    # VARS: discovered_numbers = stable set of numeric book slots already claimed anywhere inside the world
+    # WHY: Stored source copies are the durable book identity, but partially created book outputs or backups should still reserve their slot instead of letting a new ingest overwrite it
+    discovered_numbers: set[int] = set()
+    for base_dir in (world_dir / "source files", world_dir / ".backups", world_dir / "books"):
+        if not base_dir.exists():
+            continue
+        for child in base_dir.iterdir():
+            if not child.is_dir():
+                continue
+            match = re.fullmatch(r"book_(\d{2,})", child.name)
+            if match is None:
+                continue
+            discovered_numbers.add(int(match.group(1)))
+    return sorted(discovered_numbers)
+
+
+def next_book_number(world_dir: Path) -> int:
+    """Return the next free per-world book number."""
+    # BLOCK 1: Allocate the next book slot after the highest existing world-local book number
+    # WHY: Appending new books must never reuse a prior slot, even if the caller provides only one new source while older book folders still exist
+    existing_numbers = existing_book_numbers(world_dir)
+    return (max(existing_numbers) + 1) if existing_numbers else 1
+
+
+def load_stored_source_paths(*, world_dir: Path, book_number: int) -> StoredSourcePaths:
+    """Return the saved source and backup paths for one stored book slot."""
+    # BLOCK 1: Rebuild the stored source paths from world-local source and backup folders
+    # WHY: Resume and full-world re-ingest both work from the app-owned copies, so they need one helper that tolerates a missing primary file when a backup still exists
+    source_dir = stored_source_directory(world_dir, book_number)
+    backup_dir = stored_backup_directory(world_dir, book_number)
+    source_files = sorted(path for path in source_dir.iterdir() if path.is_file()) if source_dir.exists() else []
+    backup_files = sorted(path for path in backup_dir.iterdir() if path.is_file()) if backup_dir.exists() else []
+    if len(source_files) > 1 or len(backup_files) > 1:
+        raise IngestionError(
+            code="STORED_SOURCE_AMBIGUOUS",
+            message="The stored book source could not be identified unambiguously.",
+            details={"book_number": book_number, "world_dir": str(world_dir)},
+        )
+    if not source_files and not backup_files:
+        raise IngestionError(
+            code="STORED_SOURCE_MISSING",
+            message="The stored book source is missing from both the working and backup locations.",
+            details={"book_number": book_number, "world_dir": str(world_dir)},
+        )
+    source_filename = source_files[0].name if source_files else backup_files[0].name
+    if source_files and backup_files and source_files[0].name != backup_files[0].name:
+        raise IngestionError(
+            code="STORED_SOURCE_AMBIGUOUS",
+            message="The stored working and backup source copies do not agree on the original filename.",
+            details={"book_number": book_number, "world_dir": str(world_dir)},
+        )
+    return StoredSourcePaths(
+        primary_path=source_dir / source_filename,
+        backup_path=backup_dir / source_filename,
+        source_filename=source_filename,
+    )
+
+
+def remove_book_output_directory(*, world_dir: Path, book_number: int) -> None:
+    """Delete only the derived output directory for one book."""
+    # BLOCK 1: Remove regenerated per-book outputs without touching stored source copies or backups
+    # WHY: Full-world re-ingest must rebuild chunks and manifests from the saved sources while preserving the original source artifacts inside the world
+    book_dir = book_directory(world_dir, book_number)
+    if book_dir.exists():
+        shutil.rmtree(book_dir)
 
 
 def _copy_binary_file(source_path: Path, destination_path: Path) -> None:

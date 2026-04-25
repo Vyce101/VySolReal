@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from backend.embeddings.models import EmbeddingBookResult
 
 from .errors import IngestionError
+
+if TYPE_CHECKING:
+    from backend.graph_extraction.models import GraphExtractionBookResult
+    from backend.graph_manifestation.models import GraphManifestationBookResult
 
 
 @dataclass(slots=True, frozen=True)
@@ -34,6 +39,17 @@ class SplitterConfig:
                 code="INVALID_OVERLAP",
                 message="Overlap size must be zero or greater.",
             )
+
+    def to_dict(self) -> dict[str, int]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "SplitterConfig":
+        return cls(
+            chunk_size=int(payload["chunk_size"]),
+            max_lookback=int(payload["max_lookback"]),
+            overlap_size=int(payload["overlap_size"]),
+        )
 
 
 @dataclass(slots=True)
@@ -101,6 +117,7 @@ class BookManifest:
     total_chunks: int
     last_completed_chunk: int
     chunk_states: list[ChunkState]
+    splitter_config: SplitterConfig | None = None
     warnings: list[dict[str, object]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -111,6 +128,7 @@ class BookManifest:
             "book_number": self.book_number,
             "total_chunks": self.total_chunks,
             "last_completed_chunk": self.last_completed_chunk,
+            "splitter_config": self.splitter_config.to_dict() if self.splitter_config is not None else None,
             "chunk_states": [state.to_dict() for state in self.chunk_states],
             "warnings": list(self.warnings),
         }
@@ -124,6 +142,7 @@ class BookManifest:
         source_filename: str,
         book_number: int,
         total_chunks: int,
+        splitter_config: SplitterConfig,
     ) -> "BookManifest":
         return cls(
             world_id=world_id,
@@ -132,6 +151,7 @@ class BookManifest:
             book_number=book_number,
             total_chunks=total_chunks,
             last_completed_chunk=0,
+            splitter_config=splitter_config,
             chunk_states=[
                 ChunkState(
                     chunk_number=index,
@@ -155,6 +175,7 @@ class BookManifest:
             total_chunks=int(payload["total_chunks"]),
             last_completed_chunk=int(payload.get("last_completed_chunk", 0)),
             chunk_states=chunk_states,
+            splitter_config=SplitterConfig.from_dict(dict(payload["splitter_config"])) if payload.get("splitter_config") is not None else None,
             warnings=list(payload.get("warnings", [])),
         )
 
@@ -175,11 +196,17 @@ class BookIngestionResult:
     manifest_path: str
     chunk_paths: list[str]
     embedding: EmbeddingBookResult | None = None
+    graph_extraction: GraphExtractionBookResult | None = None
+    graph_manifestation: GraphManifestationBookResult | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
         if self.embedding is not None:
             payload["embedding"] = self.embedding.to_dict()
+        if self.graph_extraction is not None:
+            payload["graph_extraction"] = self.graph_extraction.to_dict()
+        if self.graph_manifestation is not None:
+            payload["graph_manifestation"] = self.graph_manifestation.to_dict()
         return payload
 
 

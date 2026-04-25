@@ -36,6 +36,11 @@ class _ScopeWindow:
     runtime_blocked_for_run: bool = False
 
 
+_GLOBAL_GATE_LOCK = Lock()
+_GLOBAL_CURSOR_BY_POOL: dict[tuple[str, str, str], int] = {}
+_GLOBAL_INFLIGHT_SCOPES: set[tuple[str, str]] = set()
+
+
 class ProviderKeyScheduler:
     """Pick usable provider credentials and track shared quota cooldowns."""
 
@@ -83,12 +88,14 @@ class ProviderKeyScheduler:
         )
 
     def select_credential(self, *, token_estimate: int) -> ProviderCredential | None:
-        # BLOCK 1: Choose and reserve the first usable credential for this provider model
+        # BLOCK 1: Choose and reserve the next usable credential for this provider model in pure round-robin order
         # VARS: token_estimate = estimated token cost reserved before the provider call starts
-        # WHY: Reservation happens inside one scheduler lock so concurrent dispatchers cannot all see the same remaining model quota before any request has finished
+        # WHY: Round-robin spreads fresh work across the eligible pool, while the shared in-flight gate prevents two backend workflows from dispatching unconfirmed requests through the same quota bucket at once
         with self._lock:
             now = utc_now()
-            for credential in self.credentials:
+            for credential in self._round_robin_credentials():
+                if self._quota_scope_is_busy(credential.quota_scope):
+                    continue
                 if self._credential_is_unavailable(credential=credential, now=now):
                     continue
                 bucket_key = self._model_bucket_key(credential)
@@ -98,6 +105,7 @@ class ProviderKeyScheduler:
                 ):
                     continue
                 self._reserve_request(bucket_key=bucket_key, token_estimate=token_estimate)
+                self._mark_quota_scope_busy(credential.quota_scope)
                 logger.info(
                     "Selected credential=%s quota_scope=%s quota_bucket=%s for provider=%s model=%s.",
                     credential.display_name,
@@ -110,20 +118,28 @@ class ProviderKeyScheduler:
             return None
 
     def record_success(self, *, scope_key: str, token_estimate: int) -> None:
-        # BLOCK 1: Keep the already-reserved request as confirmed quota usage
-        # WHY: The scheduler reserves before dispatch, so a successful response should not double-count the same request in the rolling model window
+        # BLOCK 1: Keep the already-reserved request as confirmed quota usage after a successful provider response
+        # WHY: Round-robin selection no longer waits for in-flight calls, but known provider quota windows still need completed calls trimmed over time
         with self._lock:
+            self._release_quota_scope_busy(scope_key)
             window = self.scope_windows.setdefault(self._model_bucket_key_from_scope(scope_key), _ScopeWindow(requests_in_window=[], tokens_in_window=[]))
             self._trim_scope_window(window=window, now=time.monotonic())
 
     def release_reservation(self, *, scope_key: str, token_estimate: int) -> None:
-        # BLOCK 1: Remove one pre-dispatch reservation after a request fails without a provider quota signal
+        # BLOCK 1: Remove one pre-dispatch reservation after a non-quota failure
         # VARS: token_estimate = estimated token cost that was reserved before dispatch
         # WHY: Non-rate-limit failures should not make a key/model look busier than it is, while true provider quota failures are handled separately as cooldowns
         with self._lock:
+            self._release_quota_scope_busy(scope_key)
             bucket_key = self._model_bucket_key_from_scope(scope_key)
             window = self.scope_windows.setdefault(bucket_key, _ScopeWindow(requests_in_window=[], tokens_in_window=[]))
             self._remove_latest_window_entry(window=window, token_estimate=token_estimate)
+
+    def abandon_inflight(self, *, scope_key: str, token_estimate: int) -> None:
+        # BLOCK 1: Remove a key reservation when a caller intentionally discards an in-flight response after pause or cancellation
+        # VARS: scope_key = shared provider quota scope for the credential that owned the abandoned request
+        # WHY: User-paused work should stay pending without counting as a chunk failure, and quota reservations for discarded work should not throttle later resumed workflows
+        self.release_reservation(scope_key=scope_key, token_estimate=token_estimate)
 
     def apply_rate_limit_failure(
         self,
@@ -134,6 +150,7 @@ class ProviderKeyScheduler:
         # BLOCK 1: Persist the provider cooldown against the exact quota bucket reported by the provider
         # WHY: Model-specific failures should not disable unrelated models on the same key, while explicit project/key failures still need one shared block across models
         with self._lock:
+            self._release_quota_scope_busy(credential.quota_scope)
             bucket_key = self._failure_bucket_key(credential=credential, failure=failure)
             state = self.runtime_states.get(bucket_key)
             if state is None:
@@ -183,6 +200,8 @@ class ProviderKeyScheduler:
         # WHY: Cooldowns and known quota windows for other models should not keep this workflow sleeping, but active local blockers mean waiting can make progress
         with self._lock:
             now = utc_now()
+            if any(self._quota_scope_is_busy(credential.quota_scope) for credential in self.credentials):
+                return True
             if any(
                 state.cooldown_until is not None and state.cooldown_until > now
                 for credential in self.credentials
@@ -220,6 +239,46 @@ class ProviderKeyScheduler:
         wait_options = [(next_cooldown - utc_now()).total_seconds()] + quota_waits
         sleep_seconds = max(0.1, min(2.0, min(wait_options)))
         time.sleep(sleep_seconds)
+
+    def _round_robin_credentials(self) -> list[ProviderCredential]:
+        # BLOCK 1: Rotate the eligible credential list from the shared cursor for this provider/model pool
+        # VARS: cursor_key = stable selector bucket for one provider model under one key root, cursor = next credential index to try first
+        # WHY: Concurrent workflows should not restart every selection at the first key, or large batches would keep favoring the same credential whenever it is briefly free
+        if not self.credentials:
+            return []
+        cursor_key = self._cursor_key()
+        with _GLOBAL_GATE_LOCK:
+            cursor = _GLOBAL_CURSOR_BY_POOL.get(cursor_key, 0) % len(self.credentials)
+            _GLOBAL_CURSOR_BY_POOL[cursor_key] = (cursor + 1) % len(self.credentials)
+        return self.credentials[cursor:] + self.credentials[:cursor]
+
+    def _cursor_key(self) -> tuple[str, str, str]:
+        # BLOCK 1: Build a shared cursor key that remains stable across scheduler instances for the same key root and model
+        # WHY: Embedding and extraction services may create their own scheduler objects, but key rotation should still behave like one provider/model pool
+        return (str(self.provider_keys_root.resolve()), self.provider_id, self.model_id)
+
+    def _quota_scope_is_busy(self, scope_key: str) -> bool:
+        # BLOCK 1: Check whether another scheduler instance already has an unconfirmed request for this quota scope
+        # WHY: Embedding and extraction can run through separate scheduler objects, so the busy check has to live in a shared process-level gate instead of one instance
+        with _GLOBAL_GATE_LOCK:
+            return self._inflight_key(scope_key) in _GLOBAL_INFLIGHT_SCOPES
+
+    def _mark_quota_scope_busy(self, scope_key: str) -> None:
+        # BLOCK 1: Mark a selected quota scope busy immediately before the provider dispatch
+        # WHY: Later selections should skip this key while its current request is still unconfirmed, even if they come from another AI workflow
+        with _GLOBAL_GATE_LOCK:
+            _GLOBAL_INFLIGHT_SCOPES.add(self._inflight_key(scope_key))
+
+    def _release_quota_scope_busy(self, scope_key: str) -> None:
+        # BLOCK 1: Clear the shared busy flag once a provider response is accepted, failed, or intentionally abandoned
+        # WHY: The one-in-flight rule only applies while a request outcome is unknown; leaving the flag set would deadlock future work on that key
+        with _GLOBAL_GATE_LOCK:
+            _GLOBAL_INFLIGHT_SCOPES.discard(self._inflight_key(scope_key))
+
+    def _inflight_key(self, scope_key: str) -> tuple[str, str]:
+        # BLOCK 1: Scope the busy gate to this key root and provider quota scope
+        # WHY: Test fixtures and separate app installs can reuse display names, so the key root keeps unrelated stores from blocking each other
+        return (str(self.provider_keys_root.resolve()), scope_key)
 
     def _scope_can_accept_request(
         self,
