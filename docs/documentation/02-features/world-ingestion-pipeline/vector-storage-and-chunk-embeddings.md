@@ -1,3 +1,7 @@
+---
+order: 300
+---
+
 # Vector Storage And Chunk Embeddings
 
 VySol's vector storage and chunk embedding pipeline turns persisted chunk text into locked, resumable embedding records that can be retrieved later without re-ingesting the world.
@@ -34,13 +38,13 @@ When the preflight passes, the world is created with a stable UUID and a locked 
 
 After that, text splitting runs normally. Source copies are preserved, chunk files are written one at a time, and the chunk progress manifest is updated only after each chunk file is safely saved. Once a book's chunk files exist, the embedding stage starts.
 
-The embedding stage opens the shared local Qdrant store, loads the per-book embedding manifest, and reconciles that manifest against both the current chunk files and the live Qdrant points. If the manifest says a chunk is embedded but Qdrant is missing the point, that chunk is reset to be embedded again. If the chunk text hash no longer matches the stored vector payload, the stale point is deleted before overwrite.
+The embedding stage opens the shared local Qdrant store, loads the per-book embedding manifest, and reconciles that manifest against both the current chunk files and the live Qdrant points. If the manifest says a chunk is embedded but Qdrant is missing the point, that chunk is reset to be embedded again. If the chunk text hash no longer matches the stored vector payload, the stale point is deleted before overwrite. If the manifest or the live Qdrant payload belongs to an older ingestion run, VySol also resets that chunk to be embedded again under the current run boundary.
 
-Each remaining chunk becomes one embedding work item. Only `chunk_text` is embedded. `overlap_text` stays in the chunk JSON for later graph extraction or context stitching, but it is deliberately excluded from the embedding hash and from the provider request.
+Each remaining chunk becomes one embedding work item. Only `chunk_text` is embedded. `overlap_text` stays in the chunk JSON for later [Knowledge Graph Extraction Pipeline](knowledge-graph-extraction-pipeline.md) work or context stitching, but it is deliberately excluded from the embedding hash and from the provider request.
 
 Before VySol sends a chunk to the provider, it checks the locked max input token budget from the world's embedding profile. For Google-backed embeddings, VySol asks Google's `countTokens` endpoint to count the exact text that will be embedded, compares that count to the locked `max_input_tokens`, and blocks the request locally with `EMBEDDING_CHUNK_TOO_LARGE` if the chunk is over the model's ceiling. If exact counting fails, VySol blocks with a structured token-count failure instead of sending the embedding request anyway.
 
-If the chunk fits that preflight, VySol sends one text per request, but it can run multiple single-chunk requests concurrently across the book. Provider keys are selected through the shared [Provider Key Scheduler](provider-key-scheduler.md), so embeddings use the same enabled-key, failover, model-aware quota bucket, and cooldown behavior that future AI workflows will use.
+If the chunk fits that preflight, VySol sends one text per request, but it can run multiple single-chunk requests concurrently across the book. Provider keys are selected through the shared [Provider Key Scheduler](../shared-backend-systems/provider-key-scheduler.md), so embeddings use the same enabled-key, failover, model-aware quota bucket, and cooldown behavior that future AI workflows will use.
 
 The provider call returns a vector, and that vector is written into the Qdrant collection for the world's locked embedding profile under a stable point id derived from the world UUID, book number, and chunk number. The point id does not include the text hash, which means the same logical chunk slot is overwritten when the text changes instead of creating a second logical copy.
 
@@ -50,6 +54,7 @@ Only after Qdrant confirms the upsert does VySol mark the chunk as embedded in t
 {
   "world_id": "My World",
   "world_uuid": "b1934f2b-7d5e-4e1f-9d55-7d7b4f454e42",
+  "ingestion_run_id": "run-2026-04-25-001",
   "source_filename": "chapter-one.txt",
   "book_number": 1,
   "total_chunks": 3,
@@ -77,6 +82,10 @@ Only after Qdrant confirms the upsert does VySol mark the chunk as embedded in t
 
 Provider cooldown state is stored beside the key store instead of living only in memory. That allows resume to keep respecting machine-clock-based cooldowns after restart. Per-minute cooldowns are tracked for the affected key/model bucket, and per-day exhaustion blocks that same bucket for the rest of the current run.
 
+That same run boundary now reaches the embedding manifest and the Qdrant payload. A world reuses one unfinished `ingestion_run_id` while chunking, embeddings, extraction, and graph manifestation are still incomplete. When a later run starts, the older run's embedding state is treated as stale instead of being silently mixed into the new run.
+
+Once chunk vectors have been confirmed, those same chunk files can also feed raw graph extraction. That next stage still reads the chunk files from [World Storage](world-storage.md), not vectors back out of Qdrant. Qdrant remains the vector layer, while raw graph candidates live in the extraction manifests and finalized graph records belong in [Neo4j Graph Store](../storage-layers/neo4j-graph-store.md).
+
 ## Why VySol Locks The Embedding Contract
 
 The world-level lock exists so retrieval data stays coherent. If one world quietly mixed vectors from different task types, different output dimensions, or different token-budget assumptions, later retrieval quality would degrade in ways that are hard to explain and even harder to debug.
@@ -85,4 +94,4 @@ That is why task type is not a normal user-facing toggle here. For chunk embeddi
 
 The separate embedding manifest exists for the same reason. Chunk persistence and vector persistence can fail independently, so they need independent truth. The chunk manifest answers, "does the chunk file exist?" The embedding manifest answers, "does the confirmed vector for this exact chunk text exist?" Keeping those answers separate is what makes resume trustworthy.
 
-Finally, the shared local Qdrant store is used because retrieval wants one durable vector layer that can filter by world UUID while still supporting future growth into millions of chunk or node records. Collections are separated by embedding profile so different worlds can use different vector dimensions later without colliding. Worlds remain exportable and deletable because the storage identity is the stable world UUID, while the visible world name remains editable metadata.
+Finally, the shared local Qdrant store is used because retrieval wants one durable vector layer that can filter by world UUID while still supporting future growth into millions of chunk or node records. Collections are separated by embedding profile so different worlds can use different vector dimensions later without colliding. Worlds remain exportable and deletable because the storage identity is the stable world UUID, while the visible world name remains editable metadata. That clear vector responsibility is also why graph records are documented separately under [Neo4j Graph Store](../storage-layers/neo4j-graph-store.md) instead of being blended into the vector layer.

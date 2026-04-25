@@ -1,3 +1,7 @@
+---
+order: 100
+---
+
 # Provider Key Scheduler
 
 The Provider Key Scheduler is the shared backend layer that decides which configured provider key should be used for an AI request.
@@ -6,7 +10,7 @@ The Provider Key Scheduler is the shared backend layer that decides which config
 
 VySol needs key handling to work the same way across embeddings, chat, extraction, and future AI systems. Without one shared scheduler, each workflow would eventually grow its own rotation, cooldown, and disabled-key behavior, which would make rate-limit problems hard to debug.
 
-The scheduler keeps that behavior global. A workflow asks for a usable credential for one provider and model. The scheduler loads eligible keys, ignores disabled keys, checks model-aware cooldowns, reserves the request before dispatch, and returns the first key that can be used right now.
+The scheduler keeps that behavior global. A workflow asks for a usable credential for one provider and model. The scheduler loads eligible keys, ignores disabled keys, checks model-aware cooldowns, reserves the request before dispatch, and returns a key that can be used right now without every workflow having to reinvent that logic.
 
 ## Key File Contract
 
@@ -30,18 +34,20 @@ Older key files may contain a `limits` object. VySol keeps those files compatibl
 
 ## Selection Behavior
 
-The scheduler intentionally uses failover-style selection, not round-robin.
+The scheduler intentionally uses cooldown-aware round-robin selection.
 
-Keys are loaded in stable file-name order. For each request, the scheduler picks the first enabled key that:
+Keys are loaded in stable file-name order, but selection does not restart at the first key every time. Instead, VySol keeps a shared cursor for the provider-model pool and rotates the starting point on each selection. For each request, the scheduler tries the next enabled key that:
 
 - supports the requested model
 - is not in a persisted cooldown window
 - is not blocked for the rest of the current run
 - still fits any automatic provider/model quota data VySol knows about
 
-That means a healthy first key can receive many requests until it is rate-limited or known provider/model quota data says another key should be used. When that happens, the scheduler skips it and tries the next usable key.
+That means requests spread across the eligible pool in round-robin order, but any key that is already known to be cooled down or blocked is skipped immediately.
 
 Before a workflow sends a provider request, the scheduler reserves that request against the selected `provider + quota scope + model` bucket. If VySol knows an automatic quota for that model, later selections see the in-flight request immediately instead of waiting for the first request to finish. If the request fails without a quota signal, the workflow releases the reservation.
+
+The scheduler also keeps one shared in-flight gate per provider quota scope. That means embeddings, graph extraction, and future workflows skip a key while another unconfirmed request is already using the same key or project quota bucket. If another key is free, work moves there; if every key is busy or cooling down, the workflow waits.
 
 ## Cooldowns And Recovery
 
@@ -55,6 +61,6 @@ Quota buckets are also model-aware. A rate limit for one model on a key or proje
 
 ## Current Usage
 
-Chunk embeddings are the first workflow wired into the shared scheduler. Embeddings still own chunk retry state, manifests, and Qdrant writes; the scheduler only owns provider key selection and cooldown state.
+Chunk embeddings and the [Knowledge Graph Extraction Pipeline](../world-ingestion-pipeline/knowledge-graph-extraction-pipeline.md) are both wired into the shared scheduler today. Those workflows still own their own retry state, manifests, and storage writes; the scheduler only owns provider key selection, reservations, cooldown state, and automatic quota-window waiting.
 
-Future chat, extraction, and GraphRAG systems should use the same scheduler instead of implementing their own key rotation or failover rules.
+Future chat and later GraphRAG systems should use the same scheduler instead of implementing their own key rotation or cooldown rules.

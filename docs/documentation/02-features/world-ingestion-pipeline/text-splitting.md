@@ -1,3 +1,7 @@
+---
+order: 200
+---
+
 # Text Splitting
 
 The text splitter is the ingestion subsystem that turns TXT, PDF, and EPUB source books into resumable text chunks for later extraction, embedding, and retrieval.

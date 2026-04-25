@@ -1,3 +1,7 @@
+---
+order: 200
+---
+
 # Model Registry
 
 The model registry is the layer that turns provider and model definition files into the list of models VySol can actually offer in the app.

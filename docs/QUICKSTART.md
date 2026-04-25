@@ -15,3 +15,5 @@ cd VySol
 
 ## Run
 Run `run.bat` from the project folder.
+
+On first run, VySol prepares a local Neo4j Community database without installing a Windows service. The downloaded tools are stored under `user/tools`, and Neo4j data plus the generated local connection file are stored under `user/neo4j`.
