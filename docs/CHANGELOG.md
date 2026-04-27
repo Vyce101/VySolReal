@@ -22,6 +22,7 @@
 
 ### Changed
 
+- The Worlds Hub header branding and world-card hover frames now use the updated polished UI treatment from the current local frontend pass.
 - Retype now publishes only `docs/documentation/`.
 - Provider key scheduling now uses model-aware quota buckets, reserves requests before dispatch, and ignores deprecated user-entered key limits.
 - Model metadata now loads from a shared JSON catalog used by both the TypeScript registry and backend embedding runtime.

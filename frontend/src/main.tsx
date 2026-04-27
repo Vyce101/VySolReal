@@ -152,7 +152,7 @@ function Header() {
     <header className="topbar">
       <div className="brand" aria-label="VySol">
         <img className="brand__mark" src={appAssets.logo} alt="" />
-        <span>VySol</span>
+        <span className="brand__wordmark">VySol</span>
       </div>
       <nav className="nav-pill" aria-label="Main">
         <button type="button" className="nav-pill__item nav-pill__item--active">
@@ -173,14 +173,17 @@ function Header() {
 
 function CreateWorldCard({ worldCount, onPreview }: { worldCount: number; onPreview: () => void }) {
   return (
-    <button type="button" className="create-card" onMouseEnter={onPreview} onFocus={onPreview} onClick={onPreview}>
-      <img src={appAssets.createCard} alt="" />
-      <span className="card-hover-panel" />
-      <span className="create-card__copy">
-        <strong>Create New World</strong>
-        <span>{worldCount} Worlds</span>
-      </span>
-    </button>
+    <div className="world-card-shell create-card-shell">
+      <span className="world-card__frame" aria-hidden="true" />
+      <button type="button" className="create-card" onMouseEnter={onPreview} onFocus={onPreview} onClick={onPreview}>
+        <img src={appAssets.createCard} alt="" />
+        <span className="card-hover-panel" />
+        <span className="create-card__copy">
+          <strong>Create New World</strong>
+          <span>{worldCount} Worlds</span>
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -192,23 +195,27 @@ function WorldCard({
   onPreview: () => void;
 }) {
   return (
-    <button type="button" className="world-card" onMouseEnter={onPreview} onFocus={onPreview} onClick={onPreview}>
-      <img src={absoluteApiUrl(world.card_url)} alt="" />
-      <span className="world-card__overlay" />
-      <span className="card-hover-panel" />
-      <span className="world-card__content">
-        <strong>{world.title}</strong>
-        <span className="world-card__meta">
-          <span>{world.used_last ?? "Used Last: Never"}</span>
-          {typeof world.chronicles === "number" ? (
-            <span>
-              <BookOpen size={15} aria-hidden="true" />
-              {world.chronicles} Chronicles
-            </span>
-          ) : null}
+    <div className="world-card-shell">
+      <span className="world-card__glow" aria-hidden="true" />
+      <span className="world-card__frame" aria-hidden="true" />
+      <button type="button" className="world-card" onMouseEnter={onPreview} onFocus={onPreview} onClick={onPreview}>
+        <img src={absoluteApiUrl(world.card_url)} alt="" />
+        <span className="world-card__overlay" />
+        <span className="card-hover-panel" />
+        <span className="world-card__content">
+          <strong>{world.title}</strong>
+          <span className="world-card__meta">
+            <span>{world.used_last ?? "Used Last: Never"}</span>
+            {typeof world.chronicles === "number" ? (
+              <span>
+                <BookOpen size={15} aria-hidden="true" />
+                {world.chronicles} Chronicles
+              </span>
+            ) : null}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 
