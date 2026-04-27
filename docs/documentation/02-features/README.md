@@ -1,4 +1,4 @@
-# Features
+# Concepts
 
 These pages describe the backend systems that turn source books into stored chunks, vectors, extracted graph candidates, manifested graph data, and retrieval-ready context.
 

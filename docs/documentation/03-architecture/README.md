@@ -24,7 +24,7 @@ flowchart LR
 ```
 
 ```mermaid
-flowchart TB
+flowchart LR
     classDef external fill:#142030,color:#E8F7FC,stroke:#243447,stroke-width:2px;
     classDef process fill:#142030,color:#E8F7FC,stroke:#243447,stroke-width:2px;
     classDef primary fill:#142030,color:#E8F7FC,stroke:#0892D0,stroke-width:3px;
