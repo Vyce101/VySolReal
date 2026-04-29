@@ -22,7 +22,7 @@ Local-first graph RAG for roleplaying in pre-existing fictional worlds with grou
 - [What It Solves](#what-it-solves)
 - [What It Does](#what-it-does)
 - [Why It Is Different](#why-it-is-different)
-- [MAJOR MILESTONES ROADMAP](#major-milestones-roadmap)
+- [Major Milestones Roadmap](#major-milestones-roadmap)
 - [Links](#links)
 - [License](#license)
 
@@ -66,7 +66,7 @@ Large fictional corpora create giant repeated entities. A main character can app
 
 VySol is planned to start with exact normalization and later move into AI entity resolution for those large fictional entities. The point is to merge and organize repeated lore without crushing it into a lossy summary too early.
 
-## MAJOR MILESTONES ROADMAP
+## Major Milestones Roadmap
 
 ### Full UI With Real-Time Graph Animation
 
