@@ -1,5 +1,5 @@
 (function () {
-  const desiredLabels = ["Guides", "Concepts", "Architecture"];
+  const desiredLabels = ["Architecture", "Concepts", "Guides"];
 
   function getSidebarRoot() {
     return document.querySelector(".sidebar");
