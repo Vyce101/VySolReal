@@ -19,6 +19,8 @@
 - Graph node vectors in Qdrant, portable local Neo4j bootstrap support, and pinned `neo4j==6.1.0` backend dependency.
 - Focused backend tests for graph extraction, graph manifestation, node vectors, and the expanded ingestion run-boundary cases.
 - Local Worlds Hub app shell with a FastAPI API, React/Vite frontend, app-owned Hub assets, and local world asset serving.
+- World Detail Customize shell with persisted user image/font uploads, bundled default assets, per-world visual selections, and scoped world title/description fonts.
+- Concept documentation for the World Detail and Asset Library system contract.
 
 ### Changed
 
