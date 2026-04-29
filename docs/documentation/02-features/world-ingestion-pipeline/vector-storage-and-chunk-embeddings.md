@@ -1,5 +1,5 @@
 ---
-order: 400
+order: 200
 ---
 
 # Vector Storage and Chunk Embeddings
