@@ -6,8 +6,8 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from threading import Lock
 
-from backend.ingestion.txt_splitting.models import OperationEvent
-from backend.ingestion.txt_splitting.storage import read_chunk_file
+from backend.ingestion.text_sources.models import OperationEvent
+from backend.ingestion.text_sources.storage import read_chunk_file
 from backend.logger import get_logger
 from backend.provider_keys import ProviderKeyScheduler, ProviderRateLimitFailure, default_provider_keys_root
 
@@ -718,12 +718,18 @@ def _handle_provider_failure(
         )
         return
 
-    # BLOCK 2: Roll back the scheduler reservation and spend one normal attempt for non-rate-limit failures
-    # WHY: Provider crashes, timeouts, and malformed completions should retry the chunk, but they should not make the key look quota-exhausted
+    # BLOCK 2: Roll back the scheduler reservation before deciding whether the pass should retry
+    # WHY: Non-rate-limit failures are not quota exhaustion, so the key should not keep a fake in-flight token reservation after the provider path returns
     scheduler.release_reservation(
         scope_key=failure.quota_scope,
         token_estimate=token_estimate,
     )
+    if not failure.retryable:
+        _set_retry_count(state=state, pass_type=pass_type, attempts=_MAX_RETRIES_PER_CHUNK)
+        return
+
+    # BLOCK 3: Spend one normal attempt for retryable non-rate-limit failures
+    # WHY: Provider crashes, timeouts, and malformed completions can succeed on another attempt, but deterministic local blocks such as token-limit failures should stop immediately
     attempts += 1
     _set_retry_count(state=state, pass_type=pass_type, attempts=attempts)
 

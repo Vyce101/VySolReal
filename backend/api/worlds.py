@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.embeddings.storage import load_world_metadata
-from backend.ingestion.txt_splitting.storage import default_worlds_root
+from backend.ingestion.text_sources.storage import default_worlds_root
 from backend.logger import get_logger
 
 logger = get_logger(__name__)

@@ -8,17 +8,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.graph_extraction.models import (
+from backend.ingestion.graph_extraction.models import (
     GraphExtractionChunkState,
     GraphExtractionConfig,
     GraphExtractionManifest,
     RawExtractedEdge,
     RawExtractedNode,
 )
-from backend.graph_extraction.storage import save_extraction_manifest
-from backend.graph_manifestation.errors import GraphStoreUnavailable, GraphStoreWriteError
-from backend.graph_manifestation.models import ManifestationFailure, NodeEmbeddingBatchResult, node_embedding_text
-from backend.graph_manifestation.service import manifest_extracted_graph
+from backend.ingestion.graph_extraction.storage import save_extraction_manifest
+from backend.ingestion.graph_manifestation.errors import GraphStoreUnavailable, GraphStoreWriteError
+from backend.ingestion.graph_manifestation.models import ManifestationFailure, NodeEmbeddingBatchResult, node_embedding_text
+from backend.ingestion.graph_manifestation.service import manifest_extracted_graph
 
 
 class _FakeNodeEmbedder:

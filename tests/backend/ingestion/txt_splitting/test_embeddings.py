@@ -16,10 +16,10 @@ from backend.embeddings import create_embedding_profile
 from backend.embeddings.catalog import get_supported_embedding_model
 from backend.embeddings.models import EmbeddingFailure, EmbeddingProfile, EmbeddingRunCancellation, EmbeddingSuccess
 from backend.embeddings.qdrant_store import QdrantChunkStore
-from backend.graph_extraction.models import ExtractionProviderSuccess, GraphExtractionConfig
-from backend.graph_manifestation.errors import GraphStoreUnavailable
-from backend.ingestion.txt_splitting.service import ingest_sources, ingest_sources_into_existing_world, reingest_world_from_stored_sources
-from backend.ingestion.txt_splitting.storage import book_directory
+from backend.ingestion.graph_extraction.models import ExtractionProviderSuccess, GraphExtractionConfig
+from backend.ingestion.graph_manifestation.errors import GraphStoreUnavailable
+from backend.ingestion.text_sources.service import ingest_sources, ingest_sources_into_existing_world, reingest_world_from_stored_sources
+from backend.ingestion.text_sources.storage import book_directory
 
 
 class _SuccessfulProvider:
@@ -831,12 +831,12 @@ class EmbeddingIngestionTests(unittest.TestCase):
         return source_path
 
     def _config(self):
-        from backend.ingestion.txt_splitting.models import SplitterConfig
+        from backend.ingestion.text_sources.models import SplitterConfig
 
         return SplitterConfig(chunk_size=12, max_lookback=5, overlap_size=2)
 
     def _config_with(self, *, chunk_size: int, max_lookback: int = 5, overlap_size: int = 2):
-        from backend.ingestion.txt_splitting.models import SplitterConfig
+        from backend.ingestion.text_sources.models import SplitterConfig
 
         return SplitterConfig(
             chunk_size=chunk_size,
@@ -852,7 +852,7 @@ class EmbeddingIngestionTests(unittest.TestCase):
     @contextmanager
     def _provider(self, provider_class):
         from backend.embeddings import service as embedding_service_module
-        from backend.graph_manifestation import adapters as manifestation_adapters_module
+        from backend.ingestion.graph_manifestation import adapters as manifestation_adapters_module
 
         original_provider_factory = embedding_service_module.create_embedding_provider
         original_node_provider_factory = manifestation_adapters_module.create_embedding_provider
@@ -867,7 +867,7 @@ class EmbeddingIngestionTests(unittest.TestCase):
 
     @contextmanager
     def _graph_provider(self, provider_class):
-        from backend.graph_extraction import service as graph_service_module
+        from backend.ingestion.graph_extraction import service as graph_service_module
 
         original_provider_factory = graph_service_module.create_graph_extraction_provider
         graph_service_module.create_graph_extraction_provider = lambda provider_id: provider_class()
@@ -878,7 +878,7 @@ class EmbeddingIngestionTests(unittest.TestCase):
 
     @contextmanager
     def _graph_writer(self, writer_class):
-        from backend.ingestion.txt_splitting import service as ingestion_service_module
+        from backend.ingestion.text_sources import service as ingestion_service_module
 
         original_writer_factory = ingestion_service_module.create_default_graph_writer
         writer_class.nodes = []

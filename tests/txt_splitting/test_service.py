@@ -12,9 +12,9 @@ import pymupdf
 from ebooklib import epub
 
 from backend.embeddings import create_embedding_profile
-from backend.ingestion.txt_splitting.models import BookManifest, SplitterConfig
-from backend.ingestion.txt_splitting.service import ingest_sources, ingest_sources_into_existing_world
-from backend.ingestion.txt_splitting.storage import book_directory, chunk_file_path, manifest_file_path
+from backend.ingestion.text_sources.models import BookManifest, SplitterConfig
+from backend.ingestion.text_sources.service import ingest_sources, ingest_sources_into_existing_world
+from backend.ingestion.text_sources.storage import book_directory, chunk_file_path, manifest_file_path
 
 
 class IngestSourcesTests(unittest.TestCase):
@@ -222,7 +222,7 @@ class IngestSourcesTests(unittest.TestCase):
         world_dir.mkdir(parents=True, exist_ok=True)
         config = SplitterConfig(chunk_size=12, max_lookback=6, overlap_size=2)
 
-        from backend.ingestion.txt_splitting import service as service_module
+        from backend.ingestion.text_sources import service as service_module
 
         original_chunk_file_path = service_module.chunk_file_path
         call_count = {"value": 0}

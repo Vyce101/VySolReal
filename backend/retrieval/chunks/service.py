@@ -23,7 +23,7 @@ from backend.embeddings.storage import (
     save_embedding_manifest,
     world_metadata_file_path,
 )
-from backend.ingestion.txt_splitting.storage import read_chunk_file
+from backend.ingestion.text_sources.storage import read_chunk_file
 from backend.logger import get_logger
 from backend.provider_keys import ProviderKeyScheduler, ProviderRateLimitFailure, default_provider_keys_root
 from backend.provider_keys.errors import ProviderKeyConfigurationError

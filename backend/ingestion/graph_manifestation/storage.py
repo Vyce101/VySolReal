@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from backend.ingestion.txt_splitting.storage import atomic_write_json
+from backend.ingestion.text_sources.storage import atomic_write_json
 
 from .errors import GraphManifestationConfigurationError
 from .models import GraphManifestationManifest

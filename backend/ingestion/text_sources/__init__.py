@@ -1,4 +1,4 @@
-"""TXT splitter ingestion feature."""
+"""Text-source ingestion feature."""
 
 from .models import IngestionResult, SplitterConfig
 

@@ -305,12 +305,12 @@ def create_default_graph_writer(*, world_dir: Path):
 def load_neo4j_connection_config(*, world_dir: Path) -> Neo4jConnectionConfig | None:
     """Load local Neo4j connection settings from ignored runtime state and environment overrides."""
     # BLOCK 1: Start with the generated local connection file under user/neo4j
-    # WHY: The generated password must live outside tracked files, and worlds can be nested under the repo's user/worlds folder
+    # WHY: The generated password must live outside tracked files, and Windows-created JSON may include a UTF-8 BOM that should not block local startup
     repo_root = _find_repo_root(world_dir)
     connection_path = repo_root / "user" / "neo4j" / "connection.json"
     payload: dict[str, object] = {}
     if connection_path.exists():
-        payload = json.loads(connection_path.read_text(encoding="utf-8"))
+        payload = json.loads(connection_path.read_text(encoding="utf-8-sig"))
 
     # BLOCK 2: Apply explicit process environment overrides after local config
     # WHY: External/local Neo4j setups should be selectable without editing the generated connection file or committing credentials

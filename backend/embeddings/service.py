@@ -6,8 +6,8 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from uuid import UUID, uuid5
 
-from backend.ingestion.txt_splitting.models import OperationEvent
-from backend.ingestion.txt_splitting.storage import read_chunk_file
+from backend.ingestion.text_sources.models import OperationEvent
+from backend.ingestion.text_sources.storage import read_chunk_file
 from backend.logger import get_logger
 from backend.provider_keys import ProviderKeyScheduler, ProviderRateLimitFailure, default_provider_keys_root
 

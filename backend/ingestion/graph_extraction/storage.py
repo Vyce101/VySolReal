@@ -6,7 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from backend.ingestion.txt_splitting.storage import atomic_write_json
+from backend.ingestion.text_sources.storage import atomic_write_json
 from backend.logger import get_logger
 
 from .errors import GraphExtractionError

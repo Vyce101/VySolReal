@@ -106,6 +106,7 @@ class QdrantProfileCollectionTests(unittest.TestCase):
             store.ensure_collection(profile_a)
             store.upsert_chunk_embedding(
                 world=self._world(profile=profile_a),
+                ingestion_run_id="run-profile-a",
                 work_item=self._work_item(point_id=str(uuid4())),
                 vector=[1.0, 2.0, 3.0],
                 profile=profile_a,
@@ -114,6 +115,7 @@ class QdrantProfileCollectionTests(unittest.TestCase):
             store.ensure_collection(profile_b)
             store.upsert_chunk_embedding(
                 world=self._world(profile=profile_b),
+                ingestion_run_id="run-profile-b",
                 work_item=self._work_item(point_id=str(uuid4())),
                 vector=[1.0, 2.0, 3.0, 4.0, 5.0],
                 profile=profile_b,
@@ -134,12 +136,14 @@ class QdrantProfileCollectionTests(unittest.TestCase):
             store.ensure_collection(profile)
             store.upsert_chunk_embedding(
                 world=first_world,
+                ingestion_run_id="run-first-world",
                 work_item=self._work_item(point_id=first_point_id),
                 vector=[1.0, 1.0, 1.0],
                 profile=profile,
             )
             store.upsert_chunk_embedding(
                 world=second_world,
+                ingestion_run_id="run-second-world",
                 work_item=self._work_item(point_id=second_point_id),
                 vector=[2.0, 2.0, 2.0],
                 profile=profile,
@@ -150,6 +154,8 @@ class QdrantProfileCollectionTests(unittest.TestCase):
 
         self.assertEqual(records[first_point_id].payload["world_uuid"], first_world.world_uuid)
         self.assertEqual(records[second_point_id].payload["world_uuid"], second_world.world_uuid)
+        self.assertEqual(records[first_point_id].payload["ingestion_run_id"], "run-first-world")
+        self.assertEqual(records[second_point_id].payload["ingestion_run_id"], "run-second-world")
         self.assertEqual(records[first_point_id].payload["embedding_profile_key"], records[second_point_id].payload["embedding_profile_key"])
         self.assertEqual(records[first_point_id].payload["dimensions"], 3)
 

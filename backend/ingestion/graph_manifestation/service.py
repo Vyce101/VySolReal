@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.graph_extraction.models import GraphExtractionManifest
-from backend.graph_extraction.storage import load_extraction_manifest
-from backend.ingestion.txt_splitting.models import OperationEvent
+from backend.ingestion.graph_extraction.models import GraphExtractionManifest
+from backend.ingestion.graph_extraction.storage import load_extraction_manifest
+from backend.ingestion.text_sources.models import OperationEvent
 from backend.logger import get_logger
 
 from .errors import (

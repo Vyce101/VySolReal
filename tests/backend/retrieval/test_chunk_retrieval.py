@@ -14,8 +14,8 @@ from backend.embeddings.catalog import create_embedding_profile
 from backend.embeddings.models import EmbeddingManifest, QueryEmbeddingSuccess, WorldMetadata
 from backend.embeddings.qdrant_store import QdrantChunkStore
 from backend.embeddings.storage import chunk_text_hash, ensure_world_metadata, save_embedding_manifest
-from backend.ingestion.txt_splitting.models import ChunkRecord
-from backend.ingestion.txt_splitting.storage import atomic_write_json, book_directory, chunk_file_path
+from backend.ingestion.text_sources.models import ChunkRecord
+from backend.ingestion.text_sources.storage import atomic_write_json, book_directory, chunk_file_path
 from backend.retrieval.chunks.service import retrieve_similar_chunks
 
 
@@ -334,6 +334,7 @@ class ChunkRetrievalTests(unittest.TestCase):
 
                 store.upsert_chunk_embedding(
                     world=world,
+                    ingestion_run_id="run-1",
                     work_item=EmbeddingWorkItem(
                         book_number=1,
                         chunk_number=chunk_number,
@@ -353,6 +354,7 @@ class ChunkRetrievalTests(unittest.TestCase):
         manifest = EmbeddingManifest.create(
             world_id=world.world_id,
             world_uuid=world.world_uuid,
+            ingestion_run_id="run-1",
             source_filename="source.txt",
             book_number=1,
             total_chunks=len(chunks),

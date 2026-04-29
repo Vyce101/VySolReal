@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from backend.ingestion.txt_splitting.storage import atomic_write_json
+from backend.ingestion.text_sources.storage import atomic_write_json
 from backend.provider_keys.storage import (
     load_provider_runtime_states,
     provider_runtime_state_file_path,

@@ -17,16 +17,16 @@ from backend.embeddings.storage import (
     load_world_metadata,
     save_world_metadata,
 )
-from backend.graph_extraction import GraphExtractionConfig, extract_book_chunks
-from backend.graph_extraction.errors import GraphExtractionError
-from backend.graph_extraction.storage import load_extraction_manifest, load_graph_config, load_or_create_graph_config, save_graph_config
-from backend.graph_manifestation.adapters import (
+from backend.ingestion.graph_extraction import GraphExtractionConfig, extract_book_chunks
+from backend.ingestion.graph_extraction.errors import GraphExtractionError
+from backend.ingestion.graph_extraction.storage import load_extraction_manifest, load_graph_config, load_or_create_graph_config, save_graph_config
+from backend.ingestion.graph_manifestation.adapters import (
     QdrantGraphNodeVectorStore,
     ScheduledNodeEmbedder,
     create_default_graph_writer,
 )
-from backend.graph_manifestation.errors import GraphManifestationError, GraphStoreUnavailable
-from backend.graph_manifestation.service import manifest_extracted_graph
+from backend.ingestion.graph_manifestation.errors import GraphManifestationError, GraphStoreUnavailable
+from backend.ingestion.graph_manifestation.service import manifest_extracted_graph
 from backend.logger import get_logger
 from backend.provider_keys.errors import ProviderKeyConfigurationError
 from backend.provider_keys.keys import load_eligible_provider_credentials
@@ -888,9 +888,20 @@ def _cleanup_full_reingest_outputs(
     # VARS: extraction_manifests = saved raw graph manifests grouped by book so each cleanup backend can run in sequence without reopening world files repeatedly
     # WHY: The local Qdrant stores both lock the same storage path, so chunk-vector cleanup and node-vector cleanup must happen in separate passes instead of holding two live clients at once
     resolved_vector_store_root = vector_store_root if vector_store_root is not None else default_vector_store_root()
-    graph_writer = create_default_graph_writer(world_dir=world_dir)
+    graph_writer = None
     extraction_manifests: list[tuple[int, object]] = []
     try:
+        # BLOCK 2: Open the Neo4j cleanup writer only if local graph storage is currently usable
+        # WHY: Full re-ingest should rebuild local files and vectors even when old graph rows cannot be deleted because Neo4j is stopped, stale, or misconfigured
+        try:
+            graph_writer = create_default_graph_writer(world_dir=world_dir)
+        except GraphManifestationError as error:
+            logger.warning(
+                "Full-world re-ingest will skip old Neo4j row cleanup because the graph writer could not start: world_uuid=%s code=%s",
+                metadata.world_uuid,
+                error.code,
+            )
+
         for book_number in stored_book_numbers:
             book_dir = book_directory(world_dir, book_number)
             try:
@@ -900,7 +911,7 @@ def _cleanup_full_reingest_outputs(
             if extraction_manifest is not None:
                 extraction_manifests.append((book_number, extraction_manifest))
 
-        # BLOCK 2: Delete old chunk embeddings first, then close that local Qdrant client before touching node-vector storage
+        # BLOCK 3: Delete old chunk embeddings first, then close that local Qdrant client before touching node-vector storage
         # WHY: Local Qdrant uses a filesystem lock, so sharing one storage root across two open clients in the same process causes avoidable re-ingest failures
         chunk_store = QdrantChunkStore(store_root=resolved_vector_store_root)
         try:
@@ -923,7 +934,7 @@ def _cleanup_full_reingest_outputs(
         finally:
             chunk_store.close()
 
-        # BLOCK 3: Delete manifested node vectors only after the chunk-vector store client is closed
+        # BLOCK 4: Delete manifested node vectors only after the chunk-vector store client is closed
         # WHY: Full-world re-ingest must clear stale graph node vectors too, but sequential store access keeps the shared local Qdrant path usable
         node_vector_store = QdrantGraphNodeVectorStore(
             world=metadata,
@@ -941,10 +952,12 @@ def _cleanup_full_reingest_outputs(
         finally:
             node_vector_store.close()
 
-        # BLOCK 4: Delete old Neo4j rows after vector cleanup, then remove each book's derived output folder
+        # BLOCK 5: Delete old Neo4j rows after vector cleanup, then remove each book's derived output folder
         # WHY: The source copies must survive full-world re-ingest, but manifests and chunk files need to be rebuilt from scratch for the new run
         for book_number, extraction_manifest in extraction_manifests:
             for chunk_state in extraction_manifest.chunk_states:
+                if graph_writer is None:
+                    continue
                 try:
                     graph_writer.delete_chunk(
                         world_uuid=extraction_manifest.world_uuid,

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from backend.ingestion.txt_splitting.chunking import split_text
-from backend.ingestion.txt_splitting.models import SplitterConfig
+from backend.ingestion.text_sources.chunking import split_text
+from backend.ingestion.text_sources.models import SplitterConfig
 
 
 class SplitTextTests(unittest.TestCase):

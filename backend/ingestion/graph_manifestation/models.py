@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Protocol
 from uuid import UUID, uuid5
 
-from backend.graph_extraction.models import GraphExtractionManifest
+from backend.ingestion.graph_extraction.models import GraphExtractionManifest
 
 NODE_EMBEDDING_PENDING = "pending"
 NODE_EMBEDDING_EMBEDDED = "embedded"

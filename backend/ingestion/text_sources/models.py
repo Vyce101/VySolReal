@@ -11,8 +11,8 @@ from backend.embeddings.models import EmbeddingBookResult
 from .errors import IngestionError
 
 if TYPE_CHECKING:
-    from backend.graph_extraction.models import GraphExtractionBookResult
-    from backend.graph_manifestation.models import GraphManifestationBookResult
+    from backend.ingestion.graph_extraction.models import GraphExtractionBookResult
+    from backend.ingestion.graph_manifestation.models import GraphManifestationBookResult
 
 
 @dataclass(slots=True, frozen=True)

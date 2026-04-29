@@ -10,15 +10,15 @@ import time
 import unittest
 from pathlib import Path
 
-from backend.graph_extraction.models import (
+from backend.ingestion.graph_extraction.models import (
     ExtractionPassRecord,
     ExtractionProviderFailure,
     ExtractionProviderSuccess,
     GraphExtractionConfig,
     GraphExtractionRunCancellation,
 )
-from backend.graph_extraction.parser import merge_pass_records, parse_extraction_response
-from backend.graph_extraction.service import extract_book_chunks
+from backend.ingestion.graph_extraction.parser import merge_pass_records, parse_extraction_response
+from backend.ingestion.graph_extraction.service import extract_book_chunks
 
 
 class _QueuedExtractionProvider:
@@ -50,6 +50,22 @@ class _RetryableFailureProvider:
             code="EXTRACTION_PROVIDER_FAILED",
             message="The fake provider crashed before returning a usable response.",
             retryable=True,
+        )
+
+
+class _NonRetryableFailureProvider:
+    call_count = 0
+
+    def extract(self, *, credential, config, prompt, log_context):
+        # BLOCK 1: Return a deterministic local block that should not be retried
+        # WHY: Oversized prompts and exact token-count failures will not change on another attempt, so the service should stop immediately instead of burning provider/key cycles
+        type(self).call_count += 1
+        return ExtractionProviderFailure(
+            credential_name=credential.display_name,
+            quota_scope=credential.quota_scope,
+            code="EXTRACTION_PROMPT_TOO_LARGE",
+            message="The fake provider blocked the prompt before generation.",
+            retryable=False,
         )
 
 
@@ -400,6 +416,37 @@ class GraphExtractionTests(unittest.TestCase):
         self.assertEqual(chunk_state["retry_count"], 3)
         self.assertEqual(chunk_state["last_error_code"], "EXTRACTION_PROVIDER_FAILED")
 
+    def test_non_retryable_provider_failure_stops_after_one_call(self) -> None:
+        chunk_path = self._write_chunk("Rudeus met Sylphie in the village.")
+        _NonRetryableFailureProvider.call_count = 0
+
+        with self._provider(_NonRetryableFailureProvider):
+            result, _ = extract_book_chunks(
+                world_id="Test World",
+                world_uuid="c603f3be-9b82-4d37-9a46-c9b634d38757",
+                ingestion_run_id="run-1",
+                book_dir=self.book_dir,
+                book_number=1,
+                source_filename="book.txt",
+                chunk_paths=[str(chunk_path)],
+                config=GraphExtractionConfig(
+                    provider_id="google",
+                    model_id="google/gemma-4-31b-it",
+                    gleaning_count=0,
+                    extraction_concurrency=1,
+                ),
+                provider_keys_root=self.keys_root,
+            )
+
+        manifest = json.loads((self.book_dir / "graph_extraction.json").read_text(encoding="utf-8"))
+        chunk_state = manifest["chunk_states"][0]
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(_NonRetryableFailureProvider.call_count, 1)
+        self.assertEqual(chunk_state["status"], "failed")
+        self.assertEqual(chunk_state["retry_count"], 3)
+        self.assertEqual(chunk_state["last_error_code"], "EXTRACTION_PROMPT_TOO_LARGE")
+
     def test_late_failure_after_cancellation_does_not_spend_retry_budget(self) -> None:
         chunk_path = self._write_chunk("Rudeus met Sylphie in the village.")
         cancellation = GraphExtractionRunCancellation()
@@ -541,7 +588,7 @@ class GraphExtractionTests(unittest.TestCase):
         # BLOCK 1: Patch the service-level provider factory for the duration of one test
         # WHY: The service imports the factory directly, so tests need to replace that symbol where the service resolves it
         from contextlib import contextmanager
-        from backend.graph_extraction import service as service_module
+        from backend.ingestion.graph_extraction import service as service_module
 
         @contextmanager
         def manager():
