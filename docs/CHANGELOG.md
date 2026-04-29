@@ -22,7 +22,13 @@
 
 ### Changed
 
-- The Worlds Hub header branding and world-card hover frames now use the updated polished UI treatment from the current local frontend pass.
+- `run.bat` now delegates to a robust local launcher with one visible terminal window, app-owned PID tracking, required-port checks, readiness waits, browser auto-open, live runtime logs, and shutdown cleanup.
+- `update.bat` now delegates to an update-only script that refuses to update while the tracked app runtime is still running and syncs existing Python/frontend dependencies after a fast-forward pull.
+- Backend graph extraction, graph manifestation, and text-source ingestion packages now live under the ingestion parent package.
+- The project README now uses the butterfly logo, quickstart/status/docs/license badges, a roleplay-first feature overview, and a public roadmap.
+- The Quickstart now separates requirements, Git commands, run instructions, and ZIP download steps.
+- The Retype documentation home page now routes readers by intent and keeps Architecture, Concepts, and Guides in the requested sidebar order.
+- The Architecture page now acts as a placeholder for future ADR and codebase-map content instead of showing an oversized full-system diagram.
 - Retype now publishes only `docs/documentation/`.
 - Provider key scheduling now uses model-aware quota buckets, reserves requests before dispatch, and ignores deprecated user-entered key limits.
 - Model metadata now loads from a shared JSON catalog used by both the TypeScript registry and backend embedding runtime.
@@ -33,14 +39,17 @@
 - The architecture page now reflects the chunk-to-vector pipeline with container-level storage boundaries.
 - Google AI Studio embedding requests now share provider-level request, logging, and error-normalization code across chunk and query embeddings.
 - Google AI Studio max-input enforcement now uses exact provider token counting and blocks when counting fails instead of using the old local estimate.
+- Google AI Studio graph extraction and gleaning prompts now use exact provider token counting before generation and fail closed when prompts are oversized or uncountable.
 - World ingestion now keeps a world-level splitter lock, reuses paused ingestion runs, carries `ingestion_run_id` through embedding manifests and vector payloads, and appends new books without reusing old book slots.
 - Feature documentation is now grouped into `World Ingestion Pipeline`, `Storage Layers`, `Shared Backend Systems`, and `Retrieval`, with new pages for the graph pipeline and manifestation flow.
-- The system flow diagram now shows the current graph extraction and manifestation path, shared provider-key scheduling, Neo4j storage, and a separate legend above the main diagram.
+- Concept documentation now follows a standard system-contract structure with ownership, flow, interactions, edge cases, implementation landmarks, and invariants.
 - `run.bat` now starts the backend and frontend together, checks Python and Node.js versions, installs pinned local dependencies, and prints clearer setup guidance for developers.
 - Quickstart and preview imagery now reflect the Worlds Hub startup flow.
 
 ### Fixed
 
+- World cards no longer keep the hover-expanded treatment after a card is clicked or focused, so hover state does not persist while moving across cards.
+- Neo4j connection config loading now tolerates UTF-8 BOM files produced by Windows tooling.
 - Graph manifestation now retries Neo4j edge batch failures, rebuilds surviving chunk candidates after chunk-level cleanup, and logs boundary-stage progress without raw model output.
 
 ### Removed
