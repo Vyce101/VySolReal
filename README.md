@@ -1,80 +1,108 @@
+<div align="center">
+
 # VySol
 
-Local-first graph RAG app for roleplaying in pre-existing fictional worlds with grounded, inspectable lore context.
+<img src="docs/assets/Butterfly-logo-with-background.png" alt="VySol logo" width="520">
 
-<p align="center">
-  <img src="docs/assets/worlds-hub.png" alt="VySol Worlds Hub" width="960">
-</p>
+Local-first graph RAG for roleplaying in pre-existing fictional worlds with grounded, inspectable lore context.
 
-![Python](https://img.shields.io/badge/python-3.14.3-3776AB)
-![Node](https://img.shields.io/badge/node-24-339933)
-![License](https://img.shields.io/badge/license-AGPLv3%20%2B%20Commercial-blue)
+[![Quickstart](https://img.shields.io/badge/quickstart-Windows-0892D0)](docs/QUICKSTART.md)
+![Status](https://img.shields.io/badge/status-rebuild--alpha-orange)
+[![Documentation](https://img.shields.io/badge/docs-latest%20main-0892D0)](https://vyce101.github.io/VySolReal/)
+[![License](https://img.shields.io/badge/license-AGPLv3%20%2B%20Commercial-blue)](LICENSE)
 
-VySol is built for roleplayers who want one place to ingest canon material, extract entities and relationships, run embeddings, and chat with graph-grounded context without stitching together a pile of separate tools.
+<img src="docs/assets/worlds-hub.png" alt="VySol Worlds Hub" width="960">
 
-## What Problem This Solves
+</div>
 
-Standard RAG breaks fictional worlds because it retrieves by similarity, not by importance. It finds chunks that look like your current message - not chunks that a good author would know to include. In a large fictional world, the most critical context (personality logic, world rules, cause-and-effect history) almost never appears in the same sentence as what you're currently talking about. So it gets left out.
+---
+
+## Table of Contents
+
+- [What It Solves](#what-it-solves)
+- [What It Does](#what-it-does)
+- [Why It Is Different](#why-it-is-different)
+- [MAJOR MILESTONES ROADMAP](#major-milestones-roadmap)
+- [Links](#links)
+- [License](#license)
+
+---
+
+## What It Solves
+
+VySol is for roleplayers who want believable scenes inside established fictional worlds without the context loss that makes standard RAG feel shallow, generic, or inconsistent. Standard chunk retrieval can find text that looks similar to the current message, but it often misses why a character acts a certain way, what world rules constrain a scene, or which past events should matter now.
 
 Standard RAG retrieves what was mentioned. VySol retrieves what matters.
 
-Legend:
+## What It Does
 
-- `✓` = reliably retrieved
-- `✗` = usually missing
-- `-` = might appear in text, but often without the reasoning/context that makes it usable
+### Graph Extraction Pipeline
 
-### Example 1 - The character that turns generic
+The current feature worth highlighting is the graph extraction pipeline. VySol takes persisted story chunks and runs resumable extraction passes that turn prose into raw node and edge candidates: characters, places, objects, factions, events, rules, and relationships that can later become graph context.
 
-You're roleplaying with an angry, impulsive swordsman who distrusts magic. You say: "Kaito draws his sword."
+This matters because fictional worlds do not break only because a model forgot a sentence. They break because the model missed the relationship behind the sentence: why a character acts angry, which rule makes a spell impossible, what earlier mistake still shapes a scene, or which place/faction/object carries hidden context.
 
-Standard RAG finds chunks where Kaito fights. What it misses: why he fights that way, that his impulsiveness is the reason he never learned magic, that he overcommits on the first strike because he can't read long battles, and that he resents anyone who uses spells in combat. The AI plays a generic fighter. The character becomes a shell.
+### Supporting Ingestion Work
 
-VySol links Kaito's personality node to his combat style, his backstory, his relationships, and his in-world reputation. When the scene calls him, those connections come with him even if not directly stated, because it is important to the character.
+The graph pipeline sits on top of local source ingestion, chunking, embedding, provider-key scheduling, saved manifests, Qdrant vectors, and local Neo4j manifestation work. Those systems exist to make graph extraction resumable and inspectable, but the graph extraction pipeline is the main current feature being presented here.
 
-Standard RAG retrieved:
+## Why It Is Different
 
-- ✓ A fight scene featuring Kaito
-- - That he always overcommits on the first strike (probably happened in many fight scenes, but is often not directly stated so an AI may not take note of it)
-- ✗ Why he fights impulsively
-- ✗ His distrust of magic users
-- ✗ The backstory that explains his personality
+### It Targets The Missing Cause, Not Just The Matching Scene
 
-VySol retrieved:
+In tools like SillyTavern, long-running roleplay often depends on lorebooks, memory entries, summaries, or normal chunk retrieval. Those can help, but they still tend to retrieve what looks similar to the current message. If a character is arguing right now, the system may retrieve another argument scene while missing the childhood abuse, self-blame, betrayal, oath, or world rule that actually explains why the argument matters.
 
-- ✓ The fight scene
-- ✓ Personality: angry, impulsive, overcommits early
-- ✓ Skill profile: elite swordsmanship, zero magic ability
-- ✓ Motivation: resents mages, tied to his origin
-- ✓ Behavioral rule: will escalate if he feels disrespected
+VySol is being built around that pain. The goal is not only to retrieve a matching chunk, but to recover the connected background that a human reader would know belongs in the scene even when the wording is not semantically similar.
 
-### Example 2 - The magic system that stops making sense
+### It Is Being Designed Around Story Time
 
-A character attempts a powerful silence-cast spell. Standard RAG returns a combat chunk where someone cast a spell in a fight. What it misses: that silent casting is considered physically impossible in this world, that spell power scales with incantation length, that every spell requires four mental stages (genesis -> size -> speed -> activation), and that skipping the incantation collapses stage three. The AI just lets it happen. The world breaks.
+Fictional worlds are temporal. A fact can be true in book five but unavailable in book one. A relationship can change after a betrayal. A character can learn a secret, lose a power, or misunderstand an event for hundreds of pages.
 
-VySol stores the magic system as connected rules. A query touching spells pulls the system, not just a moment.
+VySol's planned temporal index is meant to attach story position to chunks, edges, node descriptions, and graph facts. That would let retrieval respect where the scene is in the story instead of leaking future knowledge or flattening the whole corpus into one timeless memory pile.
 
-Standard RAG retrieved:
+### It Treats Entity Resolution As A Fictional-Corpus Problem
 
-- ✓ A scene where a character cast a spell in combat
-- - What happens when a stage is skipped (may have happened in a fight scene, but the AI often will not understand why)
-- ✗ That silent casting is impossible in this world
-- ✗ That spell power scales with incantation length
-- ✗ The four stages every spell requires
+Large fictional corpora create giant repeated entities. A main character can appear in so many chunks that a single node description becomes enormous. Many systems handle this by summarizing heavily, but heavy summaries often erase the exact details that made the character or world rule useful in the first place.
 
-VySol retrieved:
+VySol is planned to start with exact normalization and later move into AI entity resolution for those large fictional entities. The point is to merge and organize repeated lore without crushing it into a lossy summary too early.
 
-- ✓ The combat scene
-- ✓ Rule: silent casting does not exist in this world
-- ✓ Rule: longer incantation = more powerful spell
-- ✓ Rule: spells require genesis -> size -> speed -> activation
-- ✓ Rule: incomplete incantation breaks stage three
+## MAJOR MILESTONES ROADMAP
 
-## Where To Read Next
+### Full UI With Real-Time Graph Animation
 
-- [Documentation](https://vyce101.github.io/VySolReal/)
+VySol will get a fuller world interface built around the graph itself. As a world is ingested, the graph will visually grow: new characters, places, rules, and relationships appearing as they are discovered. Existing worlds will open into a settled graph, while live ingestion will make the world feel like it is assembling in front of you.
+
+### Retrieval Engine
+
+The retrieval engine is the part that turns the ingested world into useful roleplay context. Instead of only grabbing similar text, it will combine relevant chunks, graph nodes, relationships, and chat history so the AI has a better chance of remembering why a scene matters.
+
+### Temporal Indexer
+
+VySol will track where information comes from in the story, such as which book and chunk produced it. This is meant to help the AI understand story order, avoid future spoilers when needed, and keep facts grounded to the point in the world where they were actually known.
+
+### Entity Resolution
+
+Large fictional worlds repeat the same characters, places, and concepts in many forms. VySol will merge matching entities so the graph does not become cluttered with duplicates, while still preserving important details instead of flattening everything into a tiny summary.
+
+### Retrieval Benchmark Mode
+
+Benchmark mode will let users compare different retrieval styles on the same world. You will be able to ask one question and see how chunk-only retrieval, graph-only retrieval, and hybrid retrieval behave side by side.
+
+### Failed Chunk Repair And Retry
+
+If one chunk fails during ingestion, VySol will let users review that specific chunk, retry it, or repair it without throwing away the whole world. This is meant to make large ingestions less fragile when a provider blocks, times out, or returns unusable output.
+
+---
+
+## Links
+
+- [Documentation](https://vyce101.github.io/VySolReal/) - These docs track the latest `main` branch. Released app builds may not include every documented feature yet.
 - [Quickstart](docs/QUICKSTART.md)
-- [Changelog](docs/CHANGELOG.md)
+- [Changelog](docs/CHANGELOG.md) - See this for unreleased changes that are only available in the latest commits.
+- [Commercial License](<docs/COMMERCIAL LICENSE.md>)
+- [License](LICENSE)
+- [GitHub Issues](https://github.com/Vyce101/VySolReal/issues)
+- [GitHub Discussions](https://github.com/Vyce101/VySolReal/discussions)
 
 ## License
 
