@@ -1,49 +1,133 @@
+---
+order: 100
+---
+
 # Chunk Retrieval
 
-Chunk Retrieval finds the most similar embedded chunks inside one world and prepares chunk-text-only context for model calls.
+Chunk Retrieval is the backend retrieval system that turns a user or caller query into a vector search over one world's embedded chunks, verifies the returned chunk files, and builds chunk-text-only context for model calls.
 
 ## Why Chunk Retrieval Exists
 
-VySol stores chunk vectors during ingestion so later systems can find relevant world text without rereading every chunk file. Chunk Retrieval is the first retrieval path built on top of that vector store.
+VySol stores chunk vectors during ingestion so later systems can find relevant world text without rereading every chunk file. Chunk Retrieval is the current contract for using those vectors safely.
 
-It also exists as a simple base layer for later GraphRAG retrieval. Future retrieval can combine chunks, graph facts, summaries, memories, or scene state, while this page covers only the vector chunk path.
+It also keeps retrieval split into clear responsibilities: Qdrant finds likely candidates, World Storage provides trusted text, and the model context receives only the selected chunk text.
 
-## How Chunk Retrieval Works
+## Who This Page Is For
 
-The caller passes a world directory, a query string, a maximum chunk count, and a similarity minimum. The default maximum chunk count is `10`, and the default similarity minimum is `0.15`. A maximum chunk count of `0` is valid and returns no chunks after the world metadata is validated.
+This page is for contributors, power users, and AI coding agents that need to change retrieval filters, query embeddings, score thresholds, returned context, stale-vector repair, or GraphRAG integration points.
 
-Retrieval loads the world's locked embedding profile from World Storage. The query is embedded with the same provider, model, and output dimensions as the chunk vectors, but it uses the provider's query-specific embedding mode. For Google AI Studio, chunks use `RETRIEVAL_DOCUMENT` and queries use `RETRIEVAL_QUERY`.
+## What Chunk Retrieval Owns
 
-The Qdrant query searches the collection for that locked embedding profile, filters by the world's UUID, and passes the similarity minimum directly as Qdrant's `score_threshold`. That means Qdrant returns up to the requested chunk count that already meet the threshold, instead of returning a limited set first and filtering it afterward.
+Chunk Retrieval owns:
 
-```json
-{
-  "top_k": 10,
-  "similarity_minimum": 0.15,
-  "world_filter": {
-    "world_uuid": "b1934f2b-7d5e-4e1f-9d55-7d7b4f454e42"
-  }
-}
-```
+- query embedding for chunk search
+- world-scoped Qdrant search
+- similarity threshold validation and pass-through
+- maximum result count validation and clamping
+- chunk file verification after vector search
+- stale or missing chunk repair signals
+- rich retrieval results
+- clean model context built from chunk text only
 
-Each returned vector point is then checked against the chunk file in World Storage. Qdrant provides the score and retrieval metadata. The chunk file provides the trusted `chunk_text` and `overlap_text`.
+## What Chunk Retrieval Does Not Own
 
-## What Retrieval Returns
+Chunk Retrieval does not own:
 
-The retrieval response has two useful pieces.
+- source ingestion
+- chunk boundary creation
+- chunk embedding writes
+- provider key policy
+- Qdrant storage internals
+- graph traversal
+- broader prompt assembly outside the chunk-text context payload
 
-`results` is the rich debug and UI shape. It includes the world UUID, point id, score, book number, chunk number, chunk position, source filename, chunk text, and overlap text.
+## Normal Flow
 
-`model_context` is the model-facing shape. It only includes `chunk_text`. Overlap text, source names, scores, and positions are kept out of this context so callers do not accidentally send retrieval metadata as prompt context.
+The caller provides a world reference, query text, maximum result count, and similarity minimum. Chunk Retrieval validates the retrieval settings, loads the world's locked embedding profile from World Storage, and counts how many chunks are currently marked embedded in embedding manifests.
 
-## Repair Behavior
+The requested result count is clamped to the number of embedded chunks. If the caller requests zero chunks, the system returns the normal empty response shape after world metadata is validated.
 
-If Qdrant points to a missing chunk file, that result is skipped and the chunk is marked pending in the embedding manifest. A future resume action can repair it.
+For non-empty retrieval, VySol embeds the stripped query with the same provider, model, and dimensions as the chunk vectors, but with the provider's query-specific embedding mode. For Google AI Studio, chunk vectors use `RETRIEVAL_DOCUMENT` and query vectors use `RETRIEVAL_QUERY`.
 
-If Qdrant's stored text hash does not match the current chunk file, that result is skipped, the stale Qdrant point is deleted, and the chunk is marked pending in the embedding manifest. This keeps retrieval from returning text that does not match the vector.
+Qdrant searches the collection for the locked embedding profile, filters by the world's UUID, and applies the similarity minimum as the Qdrant score threshold.
 
-## Why It Works This Way
+Each returned point is checked against the chunk file in World Storage. Qdrant supplies score and metadata; World Storage supplies trusted chunk text. Valid results are sorted by score descending, then book number and chunk number, before the model-facing context is built from chunk text only.
 
-Chunk Retrieval keeps Qdrant as the vector index and World Storage as the source of truth for chunk text. That preserves the existing storage split: Qdrant finds likely chunks quickly, while file-backed world storage remains inspectable, resumable, and repairable.
+## Inputs
 
-The retrieval layer returns both rich results and clean model context because those are different jobs. The future UI needs scores and source metadata. The model needs only the selected chunk text.
+Chunk Retrieval receives world identity, query text, requested result count, similarity minimum, locked embedding profile metadata, provider query-embedding responses, Qdrant search results, embedding manifests, and chunk files.
+
+## Outputs
+
+Chunk Retrieval produces rich retrieval results, model-facing `chunk_text` context, repair signals for stale embeddings, skipped stale results, and structured retrieval errors.
+
+## Saved State / Repair Behavior
+
+Chunk Retrieval does not own ingestion resume, but it can update embedding manifests when retrieval proves vector state is stale or incomplete.
+
+If a Qdrant point references a missing chunk file, the matching chunk state is marked pending with a retrieval warning code. If a Qdrant point's saved text hash no longer matches the current chunk file, the stale point is deleted from Qdrant and the matching chunk state is marked pending with the current text hash.
+
+Those manifest changes tell embedding resume work that the chunk can be repaired by embedding it again.
+
+## Failure Behavior
+
+Invalid retrieval settings, such as a negative result count or a similarity minimum outside the accepted range, fail before world metadata, provider, or Qdrant work starts. Empty query text fails after world metadata is loaded, but before query embedding.
+
+If the world has no embedded chunks, retrieval returns an empty successful result with a warning and does not spend a provider call.
+
+Provider-key configuration failures, unavailable credentials, query token-limit failures, provider failures, and vector-store failures return structured retrieval errors. These failures must not modify trusted chunk text.
+
+## System Interactions
+
+Chunk Retrieval interacts with:
+
+- [World Storage](../world-ingestion-pipeline/world-storage.md), which owns chunk text and embedding profile metadata
+- [Vector Storage And Chunk Embeddings](../world-ingestion-pipeline/vector-storage-and-chunk-embeddings.md), which creates chunk vectors
+- [Qdrant Vector Store](../storage-layers/qdrant-vector-store.md), which searches vector points
+- [Provider Key Scheduler](../shared-backend-systems/provider-key-scheduler.md), which schedules query embedding calls
+- [Model Registry](../shared-backend-systems/model-registry.md), which supplies embedding model metadata
+
+## User-Facing Behavior
+
+Users or UI surfaces may see fewer returned chunks than the requested maximum when the world has fewer embedded chunks, scores are below threshold, or stale records are skipped.
+
+The rich result payload can include scores, source filename, chunk position, chunk text, and overlap text. The model-facing context intentionally excludes scores, filenames, and overlap text.
+
+## Internal Edge Cases
+
+- A maximum result count of zero returns no chunks after world metadata is validated and does not call the provider or Qdrant.
+- Negative `top_k`, boolean `top_k`, boolean similarity values, and similarity values outside `0.0` through `1.0` fail as retrieval setting errors.
+- Empty or whitespace-only query text fails before query embedding.
+- A world with no embedded chunks returns an empty successful response with a warning and does not call the provider.
+- The requested result count is clamped to the number of chunks that embedding manifests currently mark as embedded.
+- Qdrant can return fewer results than requested because the score threshold is applied inside the vector search.
+- A vector point can exist while its chunk file is missing.
+- A vector point can have an old text hash after source material is reprocessed.
+- Missing or stale chunk backing data is skipped and marked for embedding repair instead of being returned.
+
+## Cross-System Edge Cases
+
+- Query embeddings must use the same profile dimensions as stored chunk vectors.
+- Google query embeddings must pass exact max-input-token enforcement before the provider call.
+- Provider cooldowns or disabled/missing credentials can block query embedding before Qdrant search starts.
+- Qdrant collection schema must match the world's locked embedding profile.
+- Retrieval must not return stale chunk text just because Qdrant found a point.
+- GraphRAG systems should treat Chunk Retrieval as one retrieval source, not the whole retrieval architecture.
+
+## Implementation Landmarks
+
+Chunk retrieval behavior lives under `backend/retrieval/chunks`. It reads world metadata and chunk files through world storage helpers, calls embedding provider adapters for query vectors, builds model context through `backend/context`, and searches Qdrant through vector storage helpers in `backend/embeddings`.
+
+## What AI/Coders Must Check Before Changing This System
+
+Before changing Chunk Retrieval, check query embedding mode, exact query-token enforcement, world UUID filtering, score threshold semantics, result sorting, model context shape, stale-vector repair behavior, and GraphRAG callers.
+
+## Invariants That Must Not Be Broken
+
+- Qdrant finds candidate chunks; World Storage supplies trusted chunk text.
+- Query vectors must match the world's locked embedding profile.
+- Retrieval must stay scoped to one world UUID.
+- Score thresholding must happen inside the Qdrant query.
+- Stale or missing chunk backing data must be skipped, not returned.
+- Stale vector repair must not overwrite chunk text.
+- Model context must contain only selected chunk text.

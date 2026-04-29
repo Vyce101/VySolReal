@@ -1,93 +1,174 @@
 ---
-order: 500
+order: 100
 ---
 
 # Graph Manifestation
 
-Graph Manifestation is the resumable backend stage that takes completed raw extraction candidates and turns them into confirmed node vectors plus traversable Neo4j graph records.
+Graph Manifestation is the resumable backend stage that turns completed raw graph extraction candidates into graph-node vectors and traversable Neo4j graph records.
 
-## Why It Exists
+It is not the same thing as extraction. Extraction creates trusted raw candidates. Manifestation proves which of those candidates have been embedded, written as graph nodes, and connected as graph relationships.
 
-Raw extraction is not the same thing as a usable graph. `graph_extraction.json` proves that the app saved trusted node and edge candidates, but it does not prove those nodes were embedded, that Neo4j accepted them, or that relationships were safe to write.
+## Why Graph Manifestation Exists
 
-This layer exists so VySol can keep those later graph writes resumable too. Node vectors, Neo4j nodes, and Neo4j edges can all fail in different ways, so manifestation needs its own saved progress instead of pretending raw extraction already finished the whole job.
+VySol needs a separate boundary between "the model extracted these candidates" and "the local graph systems can use these candidates." Qdrant node-vector writes and Neo4j graph writes can fail independently, so extraction completion cannot be treated as graph-storage completion.
 
-## How Manifestation Starts
+Graph Manifestation exists to make that boundary explicit, resumable, and safe to inspect after interruption.
 
-Manifestation starts only after `graph_extraction.json` reports a completed book. From there, VySol loads or creates a per-book `graph_manifestation.json` file in World Storage and reconciles it against the current extracted candidates.
+## Who This Page Is For
 
-That manifestation manifest keeps separate progress for:
+This page is for contributors, power users, and AI coding agents that need to change graph-node embedding, Qdrant node-vector writes, Neo4j node or relationship writes, manifestation manifests, graph cleanup, or manifestation resume behavior.
 
-- node embeddings into Qdrant
-- Neo4j node writes
-- Neo4j edge writes
-- dependency-driven edge waiting and failure states
+## What Graph Manifestation Owns
 
-```json
-{
-  "world_uuid": "b1934f2b-7d5e-4e1f-9d55-7d7b4f454e42",
-  "ingestion_run_id": "run-2026-04-25-001",
-  "book_number": 1,
-  "source_filename": "chapter-one.txt",
-  "node_states": [
-    {
-      "node_id": "node-1",
-      "node_embedding_status": "embedded",
-      "neo4j_node_status": "written",
-      "status": "manifested"
-    }
-  ],
-  "edge_states": [
-    {
-      "edge_id": "edge-1",
-      "status": "waiting_dependency"
-    }
-  ]
-}
-```
+Graph Manifestation owns:
 
-## How Node Manifestation Works
+- per-book `graph_manifestation.json` state
+- graph-node embedding work for extracted node candidates
+- Qdrant graph-node vector writes
+- Neo4j extracted-node writes
+- Neo4j extracted-relationship writes
+- edge dependency tracking against manifested endpoint nodes
+- chunk-scoped cleanup when raw graph candidates change
+- manifestation warnings and result summaries
 
-Each extracted node becomes one node-embedding work item. The embedding text is the node's `display_name`, then two newlines, then its `description`. That text is embedded with the world's locked embedding profile, and the resulting vector is stored in a graph-node collection inside [Qdrant Vector Store](../storage-layers/qdrant-vector-store.md).
+## What Graph Manifestation Does Not Own
 
-A node is only considered manifested after two things both succeed:
+Graph Manifestation does not own:
 
-1. its Qdrant node vector is written
-2. its Neo4j `:ExtractedNode` record is written
+- source-file ingestion
+- text splitting
+- chunk vector creation
+- raw graph extraction prompts, parsing, or gleaning
+- provider key scheduling policy
+- model registry metadata
+- cross-chunk entity resolution
+- canonical entity merging
+- Neo4j startup or credential creation
 
-If the vector write succeeds but the Neo4j node write does not, the vector remains trusted and the Neo4j side stays resumable. That split keeps one successful storage layer from being thrown away just because the other one had a temporary problem.
+## Normal Flow
 
-## How Edge Manifestation Works
+Manifestation starts only after the book's graph extraction manifest is completed. The service loads the completed extraction manifest, then loads or creates the matching manifestation manifest for that book.
 
-Edges are not embedded. They wait for both endpoint nodes to be fully manifested first.
+Each extracted node becomes one node state. VySol embeds the node text, writes the node vector to the Qdrant node-vector collection, then writes the corresponding `ExtractedNode` record to Neo4j. A node is only considered manifested after both the vector write and the Neo4j node write are confirmed.
 
-That creates three important edge-side states:
+Edges are not embedded. An edge waits until both endpoint nodes are manifested. When both endpoint nodes are ready, VySol writes the relationship to Neo4j as an extracted relationship.
 
-- `pending`: the edge is ready or nearly ready to be written
-- `waiting_dependency`: one or both endpoint nodes are still pending
-- `failed_dependency`: one or both endpoint nodes failed manifestation
+The manifestation manifest records node embedding status, Neo4j node status, edge dependency status, retry counts, warnings, and summary counts so later runs can continue from saved state.
 
-If a later manifestation pass repairs the endpoint nodes, those dependency states can move back to `pending` and the edge can be written normally. That recovery matters because edge success depends on node success, not only on the edge batch itself.
+## Inputs
 
-When dependency-ready edges are written, Neo4j writes them in batches. If Neo4j is temporarily unavailable, those edges stay pending with a warning so the run can resume later. If Neo4j rejects the batch for another write reason, VySol increments the edge retry count and keeps the edge pending until the retry budget is exhausted. Only then does the edge become a true failed write.
+Graph Manifestation receives:
 
-## How Chunk Redo Cleanup Works
+- completed graph extraction manifests
+- world metadata and the locked embedding profile
+- existing manifestation manifests
+- node embedding provider outcomes
+- Qdrant node-vector store state
+- Neo4j graph-writer outcomes
+- provider key scheduler availability through the node embedder
 
-Manifestation cleanup is chunk-aware, not just candidate-id-aware.
+## Outputs
 
-When one chunk's extracted node or edge set changes, VySol compares chunk-level candidate fingerprints, marks that chunk as stale, and deletes only the manifestation outputs for that exact chunk boundary:
+Graph Manifestation produces:
 
-- stale node vectors from Qdrant
-- stale Neo4j records for that chunk
+- graph-node vectors in Qdrant
+- `ExtractedNode` records in Neo4j
+- extracted relationship records in Neo4j
+- per-book manifestation manifests
+- book-level manifestation result summaries
+- warning events when graph storage is unavailable
+- chunk-scoped cleanup requests for stale graph outputs
 
-The delete boundary is `world_uuid + ingestion_run_id + book_number + chunk_number`. After that cleanup, the surviving candidates from that chunk are rebuilt from pending state and written again. This is what keeps chunk redo from leaving a manifest that says a node or edge is done even though its backing storage was already deleted during cleanup.
+## Saved State And Resume Behavior
 
-## Why It Stays Separate
+The manifestation manifest is separate from the extraction manifest because manifestation can be partially complete even when extraction is fully complete.
 
-[Knowledge Graph Extraction Pipeline](knowledge-graph-extraction-pipeline.md) is the raw candidate stage.
+If node vectors are already saved, a later manifestation pass does not embed those nodes again. If node vectors are saved but Neo4j node writes are still pending, a later pass retries only the Neo4j side before edge writes can proceed.
 
-[Qdrant Vector Store](../storage-layers/qdrant-vector-store.md) is the vector layer.
+If the existing manifestation manifest matches the same world, ingestion run, book, and raw candidate fingerprints, VySol preserves trusted node and edge state. If a chunk's raw candidate fingerprint changes, manifestation resets that chunk's graph outputs and rebuilds its candidates from pending state.
 
-[Neo4j Graph Store](../storage-layers/neo4j-graph-store.md) is the traversable graph layer.
+## Retry, Pause, And Abort Behavior
 
-Graph Manifestation is the bridge that turns one into the others without collapsing those jobs into one file or one storage system. That separation keeps failures easier to inspect, cleanup more targeted, and resume behavior much more trustworthy.
+Manifestation is safe to pause or resume because each write boundary saves state after confirmed progress.
+
+Node embedding failures, Neo4j node write failures, and Neo4j edge write failures use retry counts inside the manifestation manifest. Failures that reach the retry limit are treated as failed for that pass, but later manifestation runs can reset those failed states and try again after credentials, provider availability, or Neo4j health changes.
+
+Neo4j unavailability is handled differently from a rejected write. When Neo4j is missing, stopped, or unreachable, manifestation leaves graph writes pending and records a warning instead of turning completed extraction output into a hard failure.
+
+## Failure Behavior
+
+Manifestation rejects missing or incomplete extraction manifests before starting vector or graph writes.
+
+Qdrant node-vector write failure is blocking because the node cannot be safely marked embedded until the vector store confirms the write.
+
+Neo4j unavailability leaves node or edge writes pending. Neo4j write rejection can mark node or edge states failed after retries, but it must not rewrite raw extraction state as failed extraction.
+
+Corrupt manifestation manifests are reset and rebuilt from the completed extraction manifest, with a warning saved in the new manifestation state.
+
+## User-Facing Behavior
+
+The current behavior is backend-facing. Users and future UI surfaces see manifestation through ingestion result summaries, warning events, and saved progress state rather than through a dedicated graph manifestation screen.
+
+A book can report partial ingestion completion when extraction finished but graph manifestation is still pending or failed.
+
+## System Interactions
+
+Graph Manifestation interacts with:
+
+- [Knowledge Graph Extraction Pipeline](knowledge-graph-extraction-pipeline.md), which produces completed raw node and edge candidates
+- [World Storage](world-storage.md), which stores per-book manifestation manifests beside ingestion outputs
+- [Vector Storage And Chunk Embeddings](vector-storage-and-chunk-embeddings.md), which provides the locked embedding profile used for node vectors
+- [Qdrant Vector Store](../storage-layers/qdrant-vector-store.md), which stores graph-node vectors in profile-specific node collections
+- [Neo4j Graph Store](../storage-layers/neo4j-graph-store.md), which stores extracted nodes and relationships
+- [Provider Key Scheduler](../shared-backend-systems/provider-key-scheduler.md), which schedules node embedding calls through shared provider credentials
+
+## Internal Edge Cases
+
+- The extraction manifest can be missing or incomplete, so manifestation must reject it before writes start.
+- A manifestation manifest can be corrupt, so it is rebuilt from completed extraction output.
+- A node vector can be written while its Neo4j node write remains pending.
+- A node embedder can return neither a vector nor a failure for a node, so the node is marked with a missing-embedding failure.
+- An edge can wait because one or both endpoint nodes are not manifested yet.
+- An edge can fail by dependency when an endpoint node fails.
+- A dependency-ready edge write can fail and remain retryable until its retry budget is exhausted for that pass.
+- A chunk's raw candidates can change, so stale node vectors and Neo4j rows for that chunk must be cleaned before rebuilt candidates are trusted.
+
+## Cross-System Edge Cases
+
+- Qdrant node vectors and Qdrant chunk vectors share local vector storage but must stay in separate profile-specific collections.
+- Provider key cooldowns or missing eligible credentials can pause node embedding without corrupting extraction or chunk embedding state.
+- Neo4j can be unavailable after extraction and node-vector work complete, so graph writes must remain pending without invalidating raw extraction.
+- Full-world re-ingest must clean old chunk vectors, node vectors, Neo4j rows, and derived book outputs while preserving stored source copies.
+- Future entity resolution must treat manifested records as extracted candidates, not canonical entities.
+
+## Implementation Landmarks
+
+Graph manifestation orchestration, models, adapters, storage helpers, structured errors, and Neo4j writing live under `backend/ingestion/graph_manifestation`.
+
+Node-vector persistence is implemented through the Qdrant node-vector helpers in `backend/embeddings`. Ingestion wires manifestation after graph extraction through the text-source ingestion service.
+
+## What AI/Coders Must Check Before Changing This System
+
+Before changing Graph Manifestation, check:
+
+- extraction manifest completion checks
+- manifestation manifest reconciliation
+- node embedding status transitions
+- Neo4j node status transitions
+- edge dependency transitions
+- retry-count reset behavior across later passes
+- chunk-scoped stale cleanup
+- Qdrant node collection separation from chunk collections
+- Neo4j unavailable versus Neo4j write-failed behavior
+- ingestion's definition of a fully completed book pipeline
+
+## Invariants That Must Not Be Broken
+
+- Raw extraction completion is not manifestation completion.
+- Manifestation must only consume completed extraction manifests.
+- A node is manifested only after both its node vector and Neo4j node write are confirmed.
+- An edge must not be written before both endpoint nodes are manifested.
+- Node vectors and chunk vectors must not share the same Qdrant collection contract.
+- Cleanup must stay scoped to the world, ingestion run, book, and chunk boundary being rebuilt.
+- Neo4j unavailability must leave graph writes resumable instead of corrupting extraction state.
+- Manifestation must not perform canonical entity resolution.

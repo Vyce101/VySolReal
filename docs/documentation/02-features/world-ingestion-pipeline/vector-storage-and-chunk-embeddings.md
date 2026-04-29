@@ -1,97 +1,139 @@
 ---
-order: 300
+order: 400
 ---
 
-# Vector Storage And Chunk Embeddings
+# Vector Storage and Chunk Embeddings
 
-VySol's vector storage and chunk embedding pipeline turns persisted chunk text into locked, resumable embedding records that can be retrieved later without re-ingesting the world.
+Vector Storage and Chunk Embeddings is the ingestion stage that turns persisted chunk text into confirmed Qdrant chunk vectors under a locked world embedding profile.
 
-## Why Chunks Become Vectors At Ingestion Time
+## Why Chunk Embeddings Exist
 
-This layer exists because chunk files alone are not enough for similarity retrieval. Retrieval needs numeric vectors that were produced with one known embedding contract, stored somewhere durable, and kept in sync with the exact chunk text that lives inside the world.
+Chunk files alone are not enough for similarity retrieval. VySol needs numeric vectors that match the exact chunk text, use one known embedding contract, and can be repaired when chunks or vector records drift.
 
-VySol also needs that process to be safe to resume. A world can be halfway through ingestion when the app closes, a provider can reject one request while the rest succeed, or a chunk can change later because the source material or chunk settings changed. The vector layer exists so those states can be repaired without pretending that chunk storage and vector storage are the same thing.
+This stage exists so retrieval can search efficiently without treating vector storage as the authority for full text.
 
-## How A Chunk Becomes A Vector Point
+## Who This Page Is For
 
-The flow starts before a new world is created. The user must choose an embedding model up front, and VySol checks that at least one enabled provider key exists for that model before the world directory is created. If there is no valid key, the run stops immediately instead of creating a half-started world that can never be embedded.
+This page is for contributors, power users, and AI coding agents that need to change chunk embedding, embedding manifests, token-limit enforcement, provider-key usage, Qdrant writes, or retrieval readiness.
 
-When the preflight passes, the world is created with a stable UUID and a locked embedding profile. That profile stores the provider id, model id, task type, dimensions, and the model's maximum input token budget. The user chooses the model, while the backend fixes the embedding contract details so that every chunk in that world is embedded the same way.
+## What Vector Storage and Chunk Embeddings Owns
 
-```json
-{
-  "world_id": "My World",
-  "world_uuid": "b1934f2b-7d5e-4e1f-9d55-7d7b4f454e42",
-  "world_name": "My World",
-  "embedding_profile": {
-    "provider_id": "google",
-    "model_id": "google/gemini-embedding-2-preview",
-    "dimensions": 3072,
-    "task_type": "RETRIEVAL_DOCUMENT",
-    "profile_version": 1,
-    "extra_settings": {
-      "max_input_tokens": 8192
-    }
-  }
-}
-```
+Vector Storage and Chunk Embeddings owns:
 
-After that, text splitting runs normally. Source copies are preserved, chunk files are written one at a time, and the chunk progress manifest is updated only after each chunk file is safely saved. Once a book's chunk files exist, the embedding stage starts.
+- embedding preflight for chunk text
+- exact Google token counting before Google embedding dispatch
+- one-text-per-request embedding calls for chunks
+- embedding manifest reconciliation
+- stable chunk vector point ids
+- Qdrant chunk-vector upserts
+- stale vector cleanup when chunk text, run id, or payload metadata no longer match
+- chunk-level retry, cancellation, and resume state for embedding work
 
-The embedding stage opens the shared local Qdrant store, loads the per-book embedding manifest, and reconciles that manifest against both the current chunk files and the live Qdrant points. If the manifest says a chunk is embedded but Qdrant is missing the point, that chunk is reset to be embedded again. If the chunk text hash no longer matches the stored vector payload, the stale point is deleted before overwrite. If the manifest or the live Qdrant payload belongs to an older ingestion run, VySol also resets that chunk to be embedded again under the current run boundary.
+## What Vector Storage and Chunk Embeddings Does Not Own
 
-Each remaining chunk becomes one embedding work item. Only `chunk_text` is embedded. `overlap_text` stays in the chunk JSON for later [Knowledge Graph Extraction Pipeline](knowledge-graph-extraction-pipeline.md) work or context stitching, but it is deliberately excluded from the embedding hash and from the provider request.
+Vector Storage and Chunk Embeddings does not own:
 
-Before VySol sends a chunk to the provider, it checks the locked max input token budget from the world's embedding profile. For Google-backed embeddings, VySol asks Google's `countTokens` endpoint to count the exact text that will be embedded, compares that count to the locked `max_input_tokens`, and blocks the request locally with `EMBEDDING_CHUNK_TOO_LARGE` if the chunk is over the model's ceiling. If exact counting fails, VySol blocks with a structured token-count failure instead of sending the embedding request anyway.
+- source conversion or chunk boundary creation
+- model catalog definitions
+- provider key loading rules
+- Qdrant collection internals beyond chunk-vector usage
+- graph node embeddings created during graph manifestation
+- retrieval query ranking
+- full-world re-ingest orchestration, even though re-ingest may delete old chunk vectors through this storage contract
 
-If the chunk fits that preflight, VySol sends one text per request, but it can run multiple single-chunk requests concurrently across the book. Provider keys are selected through the shared [Provider Key Scheduler](../shared-backend-systems/provider-key-scheduler.md), so embeddings use the same enabled-key, failover, model-aware quota bucket, and cooldown behavior that future AI workflows will use.
+## Normal Flow
 
-The provider call returns a vector, and that vector is written into the Qdrant collection for the world's locked embedding profile under a stable point id derived from the world UUID, book number, and chunk number. The point id does not include the text hash, which means the same logical chunk slot is overwritten when the text changes instead of creating a second logical copy.
+Before chunk ingestion begins, VySol checks that the world has a locked embedding profile and at least one eligible provider key for that profile. For a new world, that check happens before the world folder is created so a missing or disabled key does not leave a half-usable world behind.
 
-Only after Qdrant confirms the upsert does VySol mark the chunk as embedded in the embedding manifest. That order matters because the manifest is not allowed to claim retrieval data exists before the vector store has actually confirmed it.
+After Text Splitting writes chunk files, the embedding stage loads the world embedding profile and the per-book embedding manifest. It reconciles that manifest against the current chunk files and live Qdrant points.
 
-```json
-{
-  "world_id": "My World",
-  "world_uuid": "b1934f2b-7d5e-4e1f-9d55-7d7b4f454e42",
-  "ingestion_run_id": "run-2026-04-25-001",
-  "source_filename": "chapter-one.txt",
-  "book_number": 1,
-  "total_chunks": 3,
-  "profile": {
-    "provider_id": "google",
-    "model_id": "google/gemini-embedding-2-preview",
-    "dimensions": 3072,
-    "task_type": "RETRIEVAL_DOCUMENT",
-    "profile_version": 1,
-    "extra_settings": {
-      "max_input_tokens": 8192
-    }
-  },
-  "chunk_states": [
-    {
-      "chunk_number": 1,
-      "point_id": "0f0d9c35-6e65-54ff-93e9-4b91f1f4bbaa",
-      "status": "embedded",
-      "text_hash": "9fd72d4eb18a4f8df4a9fe9de718d2558c7ee2f4d40fe2f329f7de7f5d0dff0f",
-      "retry_count": 0
-    }
-  ]
-}
-```
+Each pending chunk embeds only `chunk_text`. For Google-backed embeddings, VySol counts the exact provider input before dispatch. Oversized or uncountable text is blocked locally instead of being sent to the provider.
 
-Provider cooldown state is stored beside the key store instead of living only in memory. That allows resume to keep respecting machine-clock-based cooldowns after restart. Per-minute cooldowns are tracked for the affected key/model bucket, and per-day exhaustion blocks that same bucket for the rest of the current run.
+The provider request is routed through the [Provider Key Scheduler](../shared-backend-systems/provider-key-scheduler.md). After the provider returns a vector, VySol writes the vector to the Qdrant collection for the locked embedding profile. The embedding manifest is marked complete only after Qdrant confirms the upsert.
 
-That same run boundary now reaches the embedding manifest and the Qdrant payload. A world reuses one unfinished `ingestion_run_id` while chunking, embeddings, extraction, and graph manifestation are still incomplete. When a later run starts, the older run's embedding state is treated as stale instead of being silently mixed into the new run.
+## Inputs
 
-Once chunk vectors have been confirmed, those same chunk files can also feed raw graph extraction. That next stage still reads the chunk files from [World Storage](world-storage.md), not vectors back out of Qdrant. Qdrant remains the vector layer, while raw graph candidates live in the extraction manifests and finalized graph records belong in [Neo4j Graph Store](../storage-layers/neo4j-graph-store.md).
+This system receives world metadata, locked embedding profile metadata, chunk files, embedding manifests, provider key availability, provider responses, token-count responses, and live Qdrant point state.
 
-## Why VySol Locks The Embedding Contract
+## Outputs
 
-The world-level lock exists so retrieval data stays coherent. If one world quietly mixed vectors from different task types, different output dimensions, or different token-budget assumptions, later retrieval quality would degrade in ways that are hard to explain and even harder to debug.
+This system produces embedding manifests, Qdrant chunk vector points, structured embedding errors, stale-point cleanup, and retrieval-ready vector state.
 
-That is why task type is not a normal user-facing toggle here. For chunk embeddings, VySol fixes it to `RETRIEVAL_DOCUMENT`. That is also why dimensions and maximum input tokens are not left floating as soft defaults. They are pinned to the selected model's maximum supported shape and then stored in the world's embedding profile so the same world keeps using the same vector contract until an explicit future re-embed action changes it.
+## Saved State And Resume Behavior
 
-The separate embedding manifest exists for the same reason. Chunk persistence and vector persistence can fail independently, so they need independent truth. The chunk manifest answers, "does the chunk file exist?" The embedding manifest answers, "does the confirmed vector for this exact chunk text exist?" Keeping those answers separate is what makes resume trustworthy.
+Embedding progress is stored per book. Resume compares the manifest, current chunk hashes, ingestion run id, and Qdrant payloads before deciding which chunks are already safe to trust.
 
-Finally, the shared local Qdrant store is used because retrieval wants one durable vector layer that can filter by world UUID while still supporting future growth into millions of chunk or node records. Collections are separated by embedding profile so different worlds can use different vector dimensions later without colliding. Worlds remain exportable and deletable because the storage identity is the stable world UUID, while the visible world name remains editable metadata. That clear vector responsibility is also why graph records are documented separately under [Neo4j Graph Store](../storage-layers/neo4j-graph-store.md) instead of being blended into the vector layer.
+If Qdrant is missing a point that the manifest claims exists, the chunk becomes pending again. If Qdrant has a stale point for the same logical chunk slot, the stale point is deleted before overwrite.
+
+If a saved embedding manifest belongs to an older ingestion run, the book is rebuilt under the active run boundary instead of trusting old progress. Older world metadata can also be normalized to the current backend-owned embedding maxima so legacy profiles keep matching the locked model contract.
+
+## Retry, Pause, And Abort Behavior
+
+Embedding work can run multiple single-chunk requests concurrently. Provider rate limits are reported to the Provider Key Scheduler so another eligible key can be tried when possible.
+
+Rate-limit failures cool down the credential without spending the chunk's ordinary retry budget. Non-rate-limit provider failures can retry the chunk up to the current per-run retry limit before the chunk is marked failed.
+
+Paused or interrupted work remains resumable because each chunk is marked embedded only after its vector write is confirmed. If an embedding run is cancelled while provider requests are still in flight, late responses are ignored and unfinished chunks remain pending.
+
+## Failure Behavior
+
+Oversized Google inputs fail locally with a structured too-large error before the embedding provider is called. Token-count failures fail closed instead of falling back to an estimate.
+
+Provider failures, missing keys, stale Qdrant points, vector-store read/write/delete failures, profile mismatches, and manifest conflicts must update state without pretending retrieval data is complete.
+
+## User-Facing Behavior
+
+The user-facing surface should treat embedding as part of ingestion progress. The backend exposes book-level embedding status, warning events, structured errors, and manifest paths; the UI decides how to present those states.
+
+## System Interactions
+
+Vector Storage and Chunk Embeddings interacts with:
+
+- [World Storage](world-storage.md), which owns chunk text and embedding profile metadata
+- [Text Splitting](text-splitting.md), which creates chunk files
+- [Provider Key Scheduler](../shared-backend-systems/provider-key-scheduler.md), which selects provider keys and tracks cooldowns
+- [Model Registry](../shared-backend-systems/model-registry.md), which describes model limits and embedding dimensions
+- [Qdrant Vector Store](../storage-layers/qdrant-vector-store.md), which persists vectors
+- [Chunk Retrieval](../retrieval/chunk-retrieval.md), which searches the vectors later
+
+## Internal Edge Cases
+
+- A manifest can be ahead of Qdrant after a failed or interrupted write.
+- A missing embedding manifest can be rebuilt from confirmed Qdrant points without re-embedding.
+- Qdrant can contain a point whose text hash no longer matches the current chunk file.
+- A point can belong to an older ingestion run.
+- A saved manifest can belong to an older ingestion run and must be reset for the current run.
+- A saved manifest can disagree with the current chunk count and must not be silently reused.
+- A chunk can be too large for the selected provider model.
+- Exact token counting can fail before the embedding request is sent.
+- A cancelled run can receive late provider responses that must not advance trusted state.
+- A profile-specific Qdrant collection can be missing, unavailable, or have a vector schema mismatch.
+
+## Cross-System Edge Cases
+
+- Text Splitting changes can stale embedding state for every affected chunk.
+- Existing-world profile or splitter changes require full-world re-ingest instead of normal append.
+- Full-world re-ingest must delete old chunk vectors before rebuilding derived output from stored sources.
+- Retrieval must skip stale or missing chunk records even when Qdrant returns a point.
+- Missing or disabled provider keys block before new-world chunk ingestion begins.
+- Provider-key cooldowns can pause embedding progress without corrupting chunk storage or spending ordinary chunk retries.
+- Graph extraction reads chunk files, not Qdrant vectors, so embedding success must not be treated as graph extraction success.
+- Graph node embeddings share the locked world embedding profile but use a separate node-vector collection and manifestation contract.
+
+## Implementation Landmarks
+
+Chunk embedding orchestration lives under `backend/embeddings`. Text ingestion calls the embedding stage from `backend/ingestion/text_sources`. Provider-specific embedding and token-count behavior lives under backend provider modules. Shared model metadata lives under `models/catalog`.
+
+## What AI/Coders Must Check Before Changing This System
+
+Before changing this system, check token-count enforcement, embedding profile locks, provider scheduler behavior, Qdrant collection naming, point id stability, manifest reconciliation, and retrieval repair behavior.
+
+## Invariants That Must Not Be Broken
+
+- The world embedding profile is locked for existing chunk vectors.
+- Only `chunk_text` is embedded for chunk retrieval.
+- The embedding manifest must not mark a chunk embedded before Qdrant confirms the vector write.
+- Exact Google token-count failures must block dispatch.
+- Stable point ids represent logical chunk slots, not text hash versions.
+- Qdrant chunk-vector payloads must not store full `chunk_text`; chunk text remains owned by world storage.
+- Chunk vectors and graph node vectors must stay in separate Qdrant collection namespaces.
