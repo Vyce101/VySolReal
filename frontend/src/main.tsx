@@ -3,26 +3,17 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BookOpen, CircleHelp, Compass, Search, Settings, Sparkles } from "lucide-react";
 import "@fontsource-variable/inter/wght.css";
+import { API_BASE_URL, HubWorld, UserAsset, absoluteApiUrl, fetchWorlds } from "./api";
+import { WorldDetailScreen } from "./world-detail";
 import "./styles.css";
-
-type HubWorld = {
-  id: string;
-  slug: string;
-  title: string;
-  description: string;
-  background_url: string;
-  card_url: string;
-  used_last?: string;
-  last_used_at?: string;
-  chronicles?: number;
-  order: number;
-};
 
 type HeroState = {
   title: string;
   description: string;
   backgroundUrl: string;
   mode: "world" | "create" | "empty";
+  worldUuid: string | null;
+  fontFamily?: string;
 };
 
 type BackgroundStack = {
@@ -31,9 +22,8 @@ type BackgroundStack = {
   version: number;
 };
 
-const API_BASE_URL = "http://127.0.0.1:8000";
 const appAssets = {
-  logo: `${API_BASE_URL}/api/app-assets/Butterfly_logo.png`,
+  logo: `${API_BASE_URL}/api/app-assets/Butterfly_logo_compressed_centered.png`,
   defaultWorld: `${API_BASE_URL}/api/app-assets/default_world_image.png`,
   createCard: `${API_BASE_URL}/api/app-assets/create_new_world_button.png`
 };
@@ -41,17 +31,20 @@ const fallbackHero: HeroState = {
   title: "VySol",
   description: "Create a world, bring in canon material, and build grounded roleplay context.",
   backgroundUrl: appAssets.defaultWorld,
-  mode: "empty"
+  mode: "empty",
+  worldUuid: null
 };
 
 function App() {
-  const [worlds, setWorlds] = useWorlds();
+  const [worlds, setWorlds, reloadWorlds] = useWorlds();
+  const [detailWorld, setDetailWorld] = React.useState<HubWorld | null>(null);
   const [hero, setHero] = React.useState<HeroState>(fallbackHero);
   const [backgroundStack, setBackgroundStack] = React.useState<BackgroundStack>({
     previousUrl: null,
     currentUrl: fallbackHero.backgroundUrl,
     version: 0
   });
+  const hubFontCss = React.useMemo(() => buildHubFontCss(worlds), [worlds]);
 
   const applyHero = React.useCallback((nextHero: HeroState) => {
     setHero(nextHero);
@@ -84,7 +77,8 @@ function App() {
       title: "Create New World",
       description: "Start a new world space for sources, lore, and future chronicles.",
       backgroundUrl: fallbackHero.backgroundUrl,
-      mode: "create"
+      mode: "create",
+      worldUuid: null
     });
   };
 
@@ -92,8 +86,35 @@ function App() {
     applyHero(worldToHero(world));
   };
 
+  const openHeroWorldDetail = () => {
+    const selectedWorld = worlds.find((world) => world.world_uuid === hero.worldUuid);
+    if (selectedWorld) {
+      setDetailWorld(selectedWorld);
+    }
+  };
+
+  if (detailWorld) {
+    return (
+      <WorldDetailScreen
+        world={detailWorld}
+        logoUrl={appAssets.logo}
+        onBack={() => setDetailWorld(null)}
+        onWorldsChanged={() => {
+          reloadWorlds().then((nextWorlds) => {
+            const updatedWorld = nextWorlds.find((world) => world.world_uuid === detailWorld.world_uuid);
+            if (updatedWorld) {
+              setDetailWorld(updatedWorld);
+              applyHero(worldToHero(updatedWorld));
+            }
+          });
+        }}
+      />
+    );
+  }
+
   return (
     <main className={`hub hub--${hero.mode}`}>
+      <style>{hubFontCss}</style>
       <div className="hub__background" aria-hidden="true">
         {backgroundStack.previousUrl ? (
           <div className="hub__background-layer hub__background-layer--previous" style={{ backgroundImage: `url("${backgroundStack.previousUrl}")` }} />
@@ -108,8 +129,8 @@ function App() {
       <Header />
 
       <section className="hero" aria-label="Selected world">
-        <h1>{hero.title}</h1>
-        <p>{hero.description}</p>
+        <h1 style={{ fontFamily: hero.fontFamily }}>{hero.title}</h1>
+        <p style={{ fontFamily: hero.fontFamily }}>{hero.description}</p>
         <div className="hero__actions">
           {hero.mode === "world" ? (
             <>
@@ -117,7 +138,7 @@ function App() {
                 <Compass size={21} aria-hidden="true" />
                 <span>Open World</span>
               </button>
-              <button type="button" className="secondary-action">
+              <button type="button" className="secondary-action" onClick={openHeroWorldDetail}>
                 <CircleHelp size={22} aria-hidden="true" />
                 <span>Info</span>
               </button>
@@ -219,23 +240,23 @@ function WorldCard({
   );
 }
 
-function useWorlds(): [HubWorld[], React.Dispatch<React.SetStateAction<HubWorld[]>>] {
+function useWorlds(): [HubWorld[], React.Dispatch<React.SetStateAction<HubWorld[]>>, () => Promise<HubWorld[]>] {
   const [worlds, setWorlds] = React.useState<HubWorld[]>([]);
 
-  // BLOCK 1: Load Hub worlds from the backend once when the app shell starts
+  // BLOCK 1: Load Hub worlds from the backend and keep a callable refresh for detail saves
   // WHY: Keeping world discovery backend-owned prevents the browser from needing direct filesystem paths or knowledge of ignored user folders
+  const reloadWorlds = React.useCallback(async () => {
+    const nextWorlds = await fetchWorlds();
+    setWorlds(nextWorlds);
+    return nextWorlds;
+  }, []);
+
   React.useEffect(() => {
     let cancelled = false;
-    fetch(`${API_BASE_URL}/api/worlds`)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`World request failed with ${response.status}`);
-        }
-        return response.json() as Promise<{ worlds: HubWorld[] }>;
-      })
-      .then((payload) => {
+    reloadWorlds()
+      .then((nextWorlds) => {
         if (!cancelled) {
-          setWorlds(payload.worlds);
+          setWorlds(nextWorlds);
         }
       })
       .catch(() => {
@@ -246,9 +267,9 @@ function useWorlds(): [HubWorld[], React.Dispatch<React.SetStateAction<HubWorld[
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadWorlds]);
 
-  return [worlds, setWorlds];
+  return [worlds, setWorlds, reloadWorlds];
 }
 
 function worldToHero(world: HubWorld): HeroState {
@@ -256,15 +277,33 @@ function worldToHero(world: HubWorld): HeroState {
     title: world.title,
     description: world.description,
     backgroundUrl: absoluteApiUrl(world.background_url),
-    mode: "world"
+    mode: "world",
+    worldUuid: world.world_uuid,
+    fontFamily: worldFontFamily(world.selected_font)
   };
 }
 
-function absoluteApiUrl(url: string): string {
-  if (url.startsWith("http")) {
-    return url;
+function buildHubFontCss(worlds: HubWorld[]): string {
+  const userFontsById = new Map<string, UserAsset>();
+  for (const world of worlds) {
+    const font = world.selected_font;
+    if (font?.url) {
+      userFontsById.set(font.id, font);
+    }
   }
-  return `${API_BASE_URL}${url}`;
+  return [...userFontsById.values()]
+    .map((font) => `@font-face{font-family:${worldFontFamily(font)};src:url("${absoluteApiUrl(font.url)}");font-display:swap;}`)
+    .join("\n");
+}
+
+function worldFontFamily(font: HubWorld["selected_font"] | undefined): string | undefined {
+  if (!font) {
+    return undefined;
+  }
+  if (font.css_family) {
+    return font.css_family;
+  }
+  return `"vysol-user-font-${font.id}"`;
 }
 
 const root = document.getElementById("root");
