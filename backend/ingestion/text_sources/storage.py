@@ -42,12 +42,7 @@ def copy_source_into_world(
     # WHY: The app needs byte-for-byte preserved originals for trust and future recovery, so these copies must not be renamed or rewritten
     primary_path = source_dir / source_path.name
     backup_path = backup_dir / source_path.name
-    logger.info(
-        "Copying source into world storage: source_path=%s primary_path=%s backup_path=%s",
-        source_path,
-        primary_path,
-        backup_path,
-    )
+    logger.info("Copying source into world storage: source_filename=%s book_number=%s", source_path.name, book_number)
 
     # BLOCK 3: Reuse the already stored source when re-ingest or resume points at the world's own primary copy
     # WHY: Full-world re-ingest rebuilds from stored sources, and copying a file onto itself would fail instead of preserving the trusted in-world copy
@@ -96,7 +91,7 @@ def ensure_world_does_not_exist(world_dir: Path) -> None:
     # BLOCK 1: Stop world creation if the target world folder already exists
     # WHY: The product rule is to reject duplicate world names and let the future UI keep the user in a rename flow instead of overwriting existing data
     if world_dir.exists():
-        logger.error("World creation blocked because the world already exists: world_path=%s", world_dir)
+        logger.error("World creation blocked because the world already exists: world_name=%s", world_dir.name)
         raise IngestionError(
             code="WORLD_NAME_EXISTS",
             message="A world with this name already exists.",
@@ -108,7 +103,7 @@ def load_manifest(manifest_path: Path) -> BookManifest | None:
     """Load a manifest if it already exists."""
     if not manifest_path.exists():
         return None
-    logger.info("Loading existing progress manifest: manifest_path=%s", manifest_path)
+    logger.info("Loading existing progress manifest: manifest_name=%s", manifest_path.name)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     return BookManifest.from_dict(payload)
 
@@ -116,8 +111,8 @@ def load_manifest(manifest_path: Path) -> BookManifest | None:
 def save_manifest(manifest_path: Path, manifest: BookManifest) -> None:
     """Write manifest atomically."""
     logger.info(
-        "Saving progress manifest: manifest_path=%s book_number=%s last_completed_chunk=%s",
-        manifest_path,
+        "Saving progress manifest: manifest_name=%s book_number=%s last_completed_chunk=%s",
+        manifest_path.name,
         manifest.book_number,
         manifest.last_completed_chunk,
     )
@@ -135,8 +130,8 @@ def persist_completed_chunk(
     # BLOCK 1: Write the chunk payload to disk before marking it complete in progress metadata
     # WHY: If the manifest were updated first, a crash could leave the system believing a chunk exists when its file was never fully written
     logger.info(
-        "Persisting completed chunk: chunk_path=%s book_number=%s chunk_number=%s",
-        chunk_path,
+        "Persisting completed chunk: chunk_name=%s book_number=%s chunk_number=%s",
+        chunk_path.name,
         record.book_number,
         record.chunk_number,
     )
@@ -313,7 +308,7 @@ def _raise_for_os_error(
     # BLOCK 1: Translate low-level filesystem errors into structured ingestion errors the backend contract understands
     # WHY: The service layer and future UI need stable error codes like DISK_FULL rather than raw platform-specific OSError details
     if exc.errno == errno.ENOSPC:
-        logger.error("Disk full while writing ingestion data: details=%s", details)
+        logger.error("Disk full while writing ingestion data: details=%s", _safe_log_details(details))
         raise IngestionError(
             code="DISK_FULL",
             message="The disk is full and the splitter cannot continue.",
@@ -323,13 +318,25 @@ def _raise_for_os_error(
         "Filesystem operation failed during ingestion: code=%s message=%s details=%s",
         default_code,
         default_message,
-        {**details, "os_error": str(exc)},
+        {**_safe_log_details(details), "os_error": str(exc)},
     )
     raise IngestionError(
         code=default_code,
         message=default_message,
         details={**details, "os_error": str(exc)},
     ) from exc
+
+
+def _safe_log_details(details: dict[str, object]) -> dict[str, object]:
+    # BLOCK 1: Strip local directory information from details before they enter logs
+    # WHY: Users may share log files, so routine backend logs should not expose full local filesystem paths
+    safe_details: dict[str, object] = {}
+    for key, value in details.items():
+        if "path" in key or key.endswith("_dir"):
+            safe_details[key] = Path(str(value)).name
+            continue
+        safe_details[key] = value
+    return safe_details
 
 
 class SourceSession:
@@ -357,14 +364,14 @@ class SourceSession:
         # BLOCK 1: Make sure the active source is still available before reading bytes from it
         # WHY: Availability must be checked immediately before reads so the session can switch to backup at the moment the working source disappears
         event = self.ensure_available()
-        logger.info("Reading active source bytes: active_path=%s", self.active_path)
+        logger.info("Reading active source bytes: source_filename=%s book_number=%s using_backup=%s", self._source_filename, self._book_number, self._using_backup)
         try:
             return self.active_path.read_bytes(), event
         except FileNotFoundError as exc:
             logger.error(
-                "Active source disappeared before bytes could be read: primary_path=%s backup_path=%s",
-                self._primary_path,
-                self._backup_path,
+                "Active source disappeared before bytes could be read: source_filename=%s book_number=%s",
+                self._source_filename,
+                self._book_number,
             )
             raise IngestionError(
                 code="BACKUP_MISSING",
@@ -385,9 +392,9 @@ class SourceSession:
             if self._backup_path.exists():
                 self._using_backup = True
                 logger.warning(
-                    "Working source copy disappeared and ingestion switched to backup: primary_path=%s backup_path=%s",
-                    self._primary_path,
-                    self._backup_path,
+                    "Working source copy disappeared and ingestion switched to backup: source_filename=%s book_number=%s",
+                    self._source_filename,
+                    self._book_number,
                 )
                 return OperationEvent(
                     code="SOURCE_MISSING_SWITCHED_TO_BACKUP",
@@ -407,7 +414,7 @@ class SourceSession:
         # BLOCK 2: Once the session is already using the backup, treat backup loss as a blocking error
         # WHY: There is no second recovery path after the backup becomes the active source, so continuing would only hide corrupted state
         if not self._backup_path.exists():
-            logger.error("Backup source became unavailable during ingestion: backup_path=%s", self._backup_path)
+            logger.error("Backup source became unavailable during ingestion: source_filename=%s book_number=%s", self._source_filename, self._book_number)
             raise IngestionError(
                 code="BACKUP_MISSING",
                 message="The backup source file is unavailable.",

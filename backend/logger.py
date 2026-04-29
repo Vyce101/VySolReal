@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 _LOGGER_NAME = "vysol"
 _LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 _MAX_LOG_FILES = 10
+_WINDOWS_PATH_PATTERN = re.compile(r"[A-Za-z]:\\(?:[^\\/:*?\"<>|\r\n]+\\)*([^\\/:*?\"<>|\r\n]+)")
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -43,10 +45,12 @@ def _configure_root_logger() -> logging.Logger:
     stream_handler = logging.StreamHandler()
     stream_handler.setLevel(configured_level)
     stream_handler.setFormatter(formatter)
+    stream_handler.addFilter(_LocalPathRedactionFilter())
 
     file_handler = logging.FileHandler(active_log_path, encoding="utf-8")
     file_handler.setLevel(configured_level)
     file_handler.setFormatter(formatter)
+    file_handler.addFilter(_LocalPathRedactionFilter())
 
     logger.addHandler(stream_handler)
     logger.addHandler(file_handler)
@@ -59,7 +63,10 @@ def _rotate_log_files(logs_dir: Path) -> None:
     # WHY: Removing the oldest file before shifting names down prevents the next rename step from colliding with an existing logs_10.txt
     oldest_log_path = logs_dir / f"logs_{_MAX_LOG_FILES}.txt"
     if oldest_log_path.exists():
-        oldest_log_path.unlink()
+        try:
+            oldest_log_path.unlink()
+        except PermissionError:
+            return
 
     # BLOCK 2: Shift each existing log file up by one number so the next run can always take the logs_1.txt slot
     # WHY: Renaming in reverse order preserves every newer log; going forward would overwrite files before they could be moved
@@ -67,7 +74,10 @@ def _rotate_log_files(logs_dir: Path) -> None:
         source_path = logs_dir / f"logs_{log_number}.txt"
         destination_path = logs_dir / f"logs_{log_number + 1}.txt"
         if source_path.exists():
-            source_path.replace(destination_path)
+            try:
+                source_path.replace(destination_path)
+            except PermissionError:
+                continue
 
 
 def _resolve_log_level() -> int:
@@ -75,3 +85,15 @@ def _resolve_log_level() -> int:
     # WHY: DEBUG logging should stay out of normal runs by default, but an environment switch keeps deep diagnostics available when needed
     requested_level = os.getenv("VYSOL_LOG_LEVEL", "INFO").upper()
     return getattr(logging, requested_level, logging.INFO)
+
+
+class _LocalPathRedactionFilter(logging.Filter):
+    """Redact local Windows paths before log records reach terminal or file handlers."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # BLOCK 1: Render the log message once, replace full local paths, then clear raw args
+        # WHY: Older modules may still pass paths as logger arguments, and users should be able to share logs without exposing local directories
+        message = record.getMessage()
+        record.msg = _WINDOWS_PATH_PATTERN.sub(lambda match: f"<local-path>\\{match.group(1)}", message)
+        record.args = ()
+        return True
