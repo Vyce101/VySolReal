@@ -1,5 +1,6 @@
 param(
-  [switch]$DryRun
+  [switch]$DryRun,
+  [string]$PidPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -337,6 +338,13 @@ function Start-Neo4jIfNeeded {
     $process = Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "`"$neo4jBat`" console") -WorkingDirectory $NEO4J_HOME -WindowStyle Hidden -PassThru
     if ($null -eq $process) {
       throw "Failed to start Neo4j."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PidPath)) {
+      $pidDir = Split-Path -Parent $PidPath
+      if (-not (Test-Path -LiteralPath $pidDir)) {
+        New-Item -ItemType Directory -Path $pidDir | Out-Null
+      }
+      Set-Content -LiteralPath $PidPath -Value $process.Id -Encoding UTF8
     }
   }
 
