@@ -9,7 +9,7 @@ Local-first graph RAG for roleplaying in pre-existing fictional worlds with grou
 [![Quickstart](https://img.shields.io/badge/quickstart-Windows-0892D0)](docs/QUICKSTART.md)
 ![Status](https://img.shields.io/badge/status-rebuild--alpha-orange)
 [![Documentation](https://img.shields.io/badge/docs-latest%20main-0892D0)](https://vyce101.github.io/VySolReal/)
-[![License](https://img.shields.io/badge/license-AGPLv3%20%2B%20Commercial-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPLv3-blue)](LICENSE)
 
 <img src="docs/assets/worlds-hub.png" alt="VySol Worlds Hub" width="960">
 
@@ -99,14 +99,10 @@ If one chunk fails during ingestion, VySol will let users review that specific c
 - [Documentation](https://vyce101.github.io/VySolReal/) - These docs track the latest `main` branch. Released app builds may not include every documented feature yet.
 - [Quickstart](docs/QUICKSTART.md)
 - [Changelog](docs/CHANGELOG.md) - See this for unreleased changes that are only available in the latest commits.
-- [Commercial License](<docs/COMMERCIAL LICENSE.md>)
 - [License](LICENSE)
 - [GitHub Issues](https://github.com/Vyce101/VySolReal/issues)
 - [GitHub Discussions](https://github.com/Vyce101/VySolReal/discussions)
 
 ## License
 
-This project is dual-licensed.
-
-- Open-source use: GNU AGPLv3 ([LICENSE](LICENSE))
-- Commercial use: [Commercial License](<docs/COMMERCIAL LICENSE.md>)
+VySol is licensed under the GNU AGPLv3. See [LICENSE](LICENSE).

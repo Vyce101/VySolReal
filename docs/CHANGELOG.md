@@ -56,3 +56,4 @@
 
 - Legacy docs files `docs/FEATURES.md` and `docs/ARCHITECTURE.md`.
 - Google AI Studio embedding title metadata from the active embedding model settings and backend request path.
+- The separate commercial license file and public commercial-license README references.
