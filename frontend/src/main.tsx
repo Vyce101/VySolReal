@@ -20,6 +20,11 @@ type BackgroundStack = {
   previousUrl: string | null;
   currentUrl: string;
   version: number;
+  animate: boolean;
+};
+
+type ApplyHeroOptions = {
+  instantBackground?: boolean;
 };
 
 const appAssets = {
@@ -42,35 +47,68 @@ function App() {
   const [backgroundStack, setBackgroundStack] = React.useState<BackgroundStack>({
     previousUrl: null,
     currentUrl: fallbackHero.backgroundUrl,
-    version: 0
+    version: 0,
+    animate: false
   });
   const hubFontCss = React.useMemo(() => buildHubFontCss(worlds), [worlds]);
 
-  const applyHero = React.useCallback((nextHero: HeroState) => {
+  // BLOCK 1: Apply the Hub hero text and choose whether its background crossfades or updates immediately
+  // VARS: useInstantBackground = whether to skip the old background layer during this hero change
+  // WHY: Hover previews should animate, but returning from World Detail must not reveal stale card or world backgrounds first
+  const applyHero = React.useCallback((nextHero: HeroState, options?: ApplyHeroOptions) => {
+    const useInstantBackground = options?.instantBackground === true;
     setHero(nextHero);
     setBackgroundStack((currentStack) => {
       if (currentStack.currentUrl === nextHero.backgroundUrl) {
-        return currentStack;
+        return useInstantBackground
+          ? {
+              ...currentStack,
+              previousUrl: null,
+              animate: false
+            }
+          : currentStack;
+      }
+      if (useInstantBackground) {
+        return {
+          previousUrl: null,
+          currentUrl: nextHero.backgroundUrl,
+          version: currentStack.version + 1,
+          animate: false
+        };
       }
       return {
         previousUrl: currentStack.currentUrl,
         currentUrl: nextHero.backgroundUrl,
-        version: currentStack.version + 1
+        version: currentStack.version + 1,
+        animate: true
       };
     });
   }, []);
 
-  // BLOCK 1: Pick the first real world as the initial Hub focus after worlds load
+  // BLOCK 1: Pick the first real world as the initial Hub focus after worlds load, but only while the Hub is visible
   // VARS: firstWorld = first backend world after backend-side ordering
-  // WHY: The Hub should open on user content when it exists, but still keep the neutral fallback for an empty install
+  // WHY: Detail saves also refresh the world list; changing the hidden Hub during detail navigation can leave stale background images in the return transition stack
   React.useEffect(() => {
+    if (detailWorld) {
+      return;
+    }
     const firstWorld = worlds[0];
     if (!firstWorld) {
       applyHero(fallbackHero);
       return;
     }
     applyHero(worldToHero(firstWorld));
-  }, [applyHero, worlds]);
+  }, [applyHero, detailWorld, worlds]);
+
+  // BLOCK 2: Return from World Detail with that same world focused in the Hub
+  // WHY: The Back action should land on the world the user was editing, and replacing the background instantly prevents a wrong-image flash
+  const closeWorldDetail = React.useCallback(() => {
+    if (!detailWorld) {
+      return;
+    }
+    applyHero(worldToHero(detailWorld), { instantBackground: true });
+    setDetailWorld(null);
+  }, [applyHero, detailWorld]);
 
   const showCreateHero = () => {
     applyHero({
@@ -98,7 +136,7 @@ function App() {
       <WorldDetailScreen
         world={detailWorld}
         logoUrl={appAssets.logo}
-        onBack={() => setDetailWorld(null)}
+        onBack={closeWorldDetail}
         onWorldsChanged={() => {
           reloadWorlds().then((nextWorlds) => {
             const updatedWorld = nextWorlds.find((world) => world.world_uuid === detailWorld.world_uuid);
@@ -121,7 +159,7 @@ function App() {
         ) : null}
         <div
           key={`${backgroundStack.version}-${backgroundStack.currentUrl}`}
-          className="hub__background-layer hub__background-layer--current"
+          className={`hub__background-layer hub__background-layer--current${backgroundStack.animate ? "" : " hub__background-layer--immediate"}`}
           style={{ backgroundImage: `url("${backgroundStack.currentUrl}")` }}
         />
       </div>

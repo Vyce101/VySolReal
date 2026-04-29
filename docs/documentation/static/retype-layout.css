@@ -1,0 +1,19 @@
+/* Keep the Retype shell flush with the viewport so the left sidebar starts at the page edge. */
+@media (min-width: 768px) {
+  #retype-header > .container,
+  #retype-container.container {
+    width: 100%;
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  #retype-container.container {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  #retype-header > .container {
+    padding-left: 0;
+  }
+}

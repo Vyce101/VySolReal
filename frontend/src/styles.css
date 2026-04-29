@@ -1,6 +1,11 @@
 @import "tailwindcss";
 
 :root {
+  --app-brand-mark-size: 42px;
+  --app-nav-item-height: 44px;
+  --app-nav-text-size: 20.5px;
+  --app-nav-text-weight: 700;
+  --app-topbar-height: 58px;
   color: #ffffff;
   background: #101722;
   font-family:
@@ -51,7 +56,7 @@ button {
   inset: 0;
   background-position: center;
   background-size: cover;
-  transform: scale(1.025);
+  transform: scale(1);
 }
 
 .hub__background-layer--previous {
@@ -61,6 +66,11 @@ button {
 .hub__background-layer--current {
   opacity: 0;
   animation: background-reveal 320ms ease-out forwards;
+}
+
+.hub__background-layer--immediate {
+  opacity: 1;
+  animation: none;
 }
 
 .hub__shade {
@@ -104,8 +114,8 @@ button {
 }
 
 .brand__mark {
-  width: 42px;
-  height: 42px;
+  width: var(--app-brand-mark-size);
+  height: var(--app-brand-mark-size);
   object-fit: contain;
   filter: drop-shadow(0 8px 18px rgba(81, 105, 255, 0.38));
   -webkit-user-drag: none;
@@ -115,7 +125,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 17px;
-  height: 58px;
+  height: var(--app-topbar-height);
   padding: 0 17px;
   border: 1px solid rgba(255, 255, 255, 0.24);
   border-radius: 999px;
@@ -136,12 +146,12 @@ button {
   position: relative;
   display: inline-flex;
   align-items: center;
-  height: 44px;
+  height: var(--app-nav-item-height);
   gap: 12px;
   padding: 0 16px 0 11px;
   border-radius: 999px;
-  font-size: 20.5px;
-  font-weight: 700;
+  font-size: var(--app-nav-text-size);
+  font-weight: var(--app-nav-text-weight);
   transition:
     background-color 140ms ease,
     box-shadow 140ms ease,
@@ -580,7 +590,7 @@ button {
   z-index: -3;
   background-position: center;
   background-size: cover;
-  transform: scale(1.02);
+  transform: scale(1);
 }
 
 .detail__shade {
@@ -604,6 +614,7 @@ button {
   display: grid;
   width: max-content;
   gap: 16px;
+  margin-top: calc((var(--app-topbar-height) - var(--app-brand-mark-size)) / 2);
 }
 
 .context-back {
@@ -643,7 +654,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  height: 54px;
+  height: var(--app-topbar-height);
   padding: 0 12px;
   border: 1px solid rgba(255, 255, 255, 0.24);
   border-radius: 999px;
@@ -658,15 +669,15 @@ button {
   position: relative;
   display: inline-flex;
   align-items: center;
-  height: 40px;
+  height: var(--app-nav-item-height);
   gap: 10px;
   padding: 0 17px;
   border: 0;
   border-radius: 999px;
   color: rgba(255, 255, 255, 0.72);
   background: transparent;
-  font-size: 18px;
-  font-weight: 750;
+  font-size: var(--app-nav-text-size);
+  font-weight: var(--app-nav-text-weight);
   cursor: default;
 }
 
