@@ -176,6 +176,9 @@ export function WorldDetailScreen({ world, onBack, onWorldsChanged, logoUrl }: W
     if (!detail || !draft) {
       return;
     }
+    if (!isDirty) {
+      return;
+    }
     if (!draft.displayName.trim()) {
       setNameInvalid(true);
       pulseSaveButton();
@@ -393,7 +396,12 @@ export function WorldDetailScreen({ world, onBack, onWorldsChanged, logoUrl }: W
           </div>
 
           <div className="detail-actions">
-            <button type="button" className={`save-action ${isDirty ? "save-action--dirty" : ""} ${savePulse ? "save-action--pulse" : ""}`} onClick={handleSave}>
+            <button
+              type="button"
+              className={`save-action ${isDirty ? "save-action--dirty" : ""} ${savePulse ? "save-action--pulse" : ""}`}
+              onClick={handleSave}
+              disabled={!isDirty}
+            >
               <Save size={20} aria-hidden="true" />
               <span>Save Changes</span>
             </button>
