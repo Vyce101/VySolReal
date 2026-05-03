@@ -1,3 +1,6 @@
+> [!WARNING]
+> This repository is a VySol prototype snapshot and is not the active rebuild. Go to https://github.com/Vyce101/VySol/tree/main for the current VySol rebuild.
+
 <div align="center">
 
 # VySol
